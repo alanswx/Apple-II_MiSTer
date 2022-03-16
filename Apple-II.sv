@@ -262,6 +262,8 @@ wire        img_readonly;
 
 wire [63:0] img_size;
 
+wire [64:0] RTC;
+
 hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -290,7 +292,9 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 
 	.joystick_0(joystick_0),
 	.joystick_l_analog_0(joystick_a0),
-	.paddle_0(paddle_0)
+	.paddle_0(paddle_0),
+
+	.RTC(RTC)
 );
 
 ///////////////////////////////////////////////////
@@ -405,7 +409,8 @@ apple2_top apple2_top
 	.UART_RTS(UART_RTS),
 	.UART_CTS(UART_CTS),
 	.UART_DTR(UART_DTR),
-	.UART_DSR(UART_DSR)
+	.UART_DSR(UART_DSR),
+	.RTC(RTC)
 
 );
 

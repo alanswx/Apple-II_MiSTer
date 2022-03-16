@@ -6,6 +6,8 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/mockingboard/YM2149.sv
 set_global_assignment -name VHDL_FILE rtl/hdd_rom.vhd
 set_global_assignment -name VHDL_FILE rtl/hdd.vhd
 set_global_assignment -name VERILOG_FILE rtl/ramcard.v
+set_global_assignment -name VERILOG_FILE rtl/clock_card.v
+set_global_assignment -name VERILOG_FILE rtl/rom.v
 set_global_assignment -name VERILOG_FILE rtl/ssc/super_serial_card.v
 set_global_assignment -name VERILOG_FILE rtl/ssc/uart_6551.v
 set_global_assignment -name VERILOG_FILE rtl/ssc/6551rx.v

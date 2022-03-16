@@ -86,7 +86,8 @@ port (
 	UART_RTS       :out  std_logic;
 	UART_CTS       :in  std_logic;
 	UART_DTR       :out  std_logic;
-	UART_DSR       :in  std_logic
+	UART_DSR       :in  std_logic;
+	RTC            :in  std_logic_vector(64 downto 0)
 
 );
 end apple2_top;
@@ -118,6 +119,22 @@ architecture arch of apple2_top is
 
   end component;
 
+  component clock_card is
+    port (
+	CLK_14M  	: in std_logic;
+	CLK_2M  	: in std_logic;
+	PH_2    	: in std_logic;
+	IO_SELECT_N	: in std_logic;
+	DEVICE_SELECT_N : in std_logic;
+	IO_STROBE_N  	: in std_logic;
+	ADDRESS     	: std_logic_vector(15 downto 0);
+	RW_N        	: in std_logic;
+	RESET      	: in std_logic;
+	DATA_IN    	: in std_logic_vector(7 downto 0);
+	DATA_OUT   	: out std_logic_vector(7 downto 0);
+	RTC             : in std_logic_vector(64 downto 0));
+  end component;
+
 
   signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
@@ -133,6 +150,7 @@ architecture arch of apple2_top is
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
+  signal CLOCK_DO     : unsigned(7 downto 0);
 
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
@@ -234,7 +252,8 @@ begin
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
-  PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+  PD <= PSG_DO when IO_SELECT(5) = '1' and mb_enabled = '1' else
+        CLOCK_DO when IO_SELECT(4) = '1' or DEVICE_SELECT(4) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -355,7 +374,7 @@ begin
       I_DATA    => std_logic_vector(D),
       unsigned(O_DATA) => PSG_DO,
       I_RW_L    => not cpu_we,
-      I_IOSEL_L => not IO_SELECT(4),
+      I_IOSEL_L => not IO_SELECT(5),
       O_IRQ_L   => psg_irq_n,
       O_NMI_L   => psg_nmi_n,
       unsigned(O_AUDIO_L) => psg_audio_l,
@@ -384,6 +403,22 @@ begin
 	UART_DTR 	=> UART_DTR,
 	UART_DSR 	=> UART_DSR,
 	IRQ_N 		=> ssc_irq_n
+	);
+
+   clock : component clock_card
+     port map (
+	CLK_14M     	=> CLK_14M,
+	CLK_2M      	=> CLK_2M,
+	PH_2        	=> PHASE_ZERO,
+	IO_SELECT_N 	=> not IO_SELECT(4),
+	DEVICE_SELECT_N => not DEVICE_SELECT(4),
+	IO_STROBE_N  	=> NOT IO_STROBE,
+	ADDRESS     	=> std_logic_vector(ADDR),
+	RW_N        	=> not cpu_we,
+	RESET       	=> reset,
+	DATA_IN     	=> std_logic_vector(D),
+	unsigned(DATA_OUT) => CLOCK_DO,
+	RTC	 	=> RTC
 	);
 
 
