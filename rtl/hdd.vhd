@@ -113,7 +113,9 @@ begin
                     end if;
                   when PRODOS_COMMAND_READ =>
                     if hdd_mounted = '1' and reg_unit = X"70" then
-                      hdd_read <= '1';
+                      if select_d = '0' then
+                        hdd_read <= '1';
+                      end if;
                       reg_status <= X"00";
                       D_OUT <= X"00";
                     else
@@ -127,9 +129,11 @@ begin
                     elsif hdd_protect = '1' then
                       D_OUT <= PRODOS_STATUS_PROTECT;
                     else
+                      if select_d = '0' then
+                        hdd_write <= '1';
+                      end if;
                       D_OUT <= X"00";
                       reg_status <= X"00";
-                      hdd_write <= '1';
                     end if;
                     when others => null;
                 end case;
