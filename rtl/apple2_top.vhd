@@ -252,8 +252,8 @@ begin
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
-  PD <= PSG_DO when IO_SELECT(5) = '1' and mb_enabled = '1' else
-        CLOCK_DO when IO_SELECT(4) = '1' or DEVICE_SELECT(4) = '1' else
+  PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+        CLOCK_DO when IO_SELECT(5) = '1' or DEVICE_SELECT(5) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -410,8 +410,8 @@ begin
 	CLK_14M     	=> CLK_14M,
 	CLK_2M      	=> CLK_2M,
 	PH_2        	=> PHASE_ZERO,
-	IO_SELECT_N 	=> not IO_SELECT(4),
-	DEVICE_SELECT_N => not DEVICE_SELECT(4),
+	IO_SELECT_N 	=> not IO_SELECT(5),
+	DEVICE_SELECT_N => not DEVICE_SELECT(5),
 	IO_STROBE_N  	=> NOT IO_STROBE,
 	ADDRESS     	=> std_logic_vector(ADDR),
 	RW_N        	=> not cpu_we,

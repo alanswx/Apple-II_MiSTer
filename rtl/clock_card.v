@@ -188,7 +188,7 @@ begin
 								if(MINUTES_TENS == 3'd5)
 								begin
 									MINUTES_TENS <= 3'd0;
-									if((HOURS_ONES == 3'd9) || ((HOURS_ONES == 3'd3)&&(HOURS_TENS == 3'd2)))
+									if((HOURS_ONES == 4'd9) || ((HOURS_ONES == 4'd3)&&(HOURS_TENS == 3'd2)))
 									begin
 										HOURS_ONES <= 3'd0;
 										if(HOURS_TENS == 3'd2)
