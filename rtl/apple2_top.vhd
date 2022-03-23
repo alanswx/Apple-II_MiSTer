@@ -65,6 +65,11 @@ port (
 	DISK_RAM_DO    : out unsigned(7 downto 0);
 	DISK_RAM_WE 	: in  std_logic;
 	DISK_ACT       : out std_logic;
+   DISK_FD_WRITE_DISK      : out std_logic;    
+   DISK_FD_READ_DISK      : out std_logic;    
+   DISK_FD_TRACK_ADDR : out unsigned(13 downto 0);  -- Address for track RAM
+   DISK_FD_DATA_IN : in unsigned(7 downto 0);  
+   DISK_FD_DATA_OUT : out unsigned(7 downto 0) ;	 
 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
@@ -253,7 +258,7 @@ begin
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
   PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
-        CLOCK_DO when IO_SELECT(5) = '1' or DEVICE_SELECT(5) = '1' else
+        CLOCK_DO when IO_SELECT(1) = '1' or DEVICE_SELECT(1) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -337,7 +342,14 @@ begin
     D2_ACTIVE      => D2_ACTIVE,
     ram_write_addr => DISK_RAM_ADDR,
     ram_di         => DISK_RAM_DI,
-    ram_we         => DISK_RAM_WE
+    ram_we         => DISK_RAM_WE,
+
+	 DISK_FD_WRITE_DISK      => DISK_FD_WRITE_DISK,
+    DISK_FD_READ_DISK      => DISK_FD_READ_DISK,
+    DISK_FD_TRACK_ADDR      => DISK_FD_TRACK_ADDR,
+    DISK_FD_DATA_IN      => DISK_FD_DATA_IN,
+    DISK_FD_DATA_OUT      => DISK_FD_DATA_OUT
+
     );
 
   DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
@@ -374,7 +386,7 @@ begin
       I_DATA    => std_logic_vector(D),
       unsigned(O_DATA) => PSG_DO,
       I_RW_L    => not cpu_we,
-      I_IOSEL_L => not IO_SELECT(5),
+      I_IOSEL_L => not IO_SELECT(4),
       O_IRQ_L   => psg_irq_n,
       O_NMI_L   => psg_nmi_n,
       unsigned(O_AUDIO_L) => psg_audio_l,
@@ -410,8 +422,8 @@ begin
 	CLK_14M     	=> CLK_14M,
 	CLK_2M      	=> CLK_2M,
 	PH_2        	=> PHASE_ZERO,
-	IO_SELECT_N 	=> not IO_SELECT(5),
-	DEVICE_SELECT_N => not DEVICE_SELECT(5),
+	IO_SELECT_N 	=> not IO_SELECT(1),
+	DEVICE_SELECT_N => not DEVICE_SELECT(1),
 	IO_STROBE_N  	=> NOT IO_STROBE,
 	ADDRESS     	=> std_logic_vector(ADDR),
 	RW_N        	=> not cpu_we,

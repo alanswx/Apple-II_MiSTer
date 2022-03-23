@@ -83,7 +83,13 @@ entity disk_ii is
     D2_ACTIVE      : out std_logic;     -- Disk 2 motor on
     ram_write_addr : in unsigned(12 downto 0);  -- Address for track RAM
     ram_di         : in unsigned(7 downto 0);  -- Data to track RAM
-    ram_we         : in std_logic              -- RAM write enable
+    ram_we         : in std_logic;              -- RAM write enable
+	 
+    DISK_FD_WRITE_DISK      : out std_logic;    
+    DISK_FD_READ_DISK      : out std_logic;    
+    DISK_FD_TRACK_ADDR : out unsigned(13 downto 0);  -- Address for track RAM
+    DISK_FD_DATA_IN : in unsigned(7 downto 0);  
+    DISK_FD_DATA_OUT : out unsigned(7 downto 0) 	 
     );
 end disk_ii;
 
@@ -93,8 +99,11 @@ architecture rtl of disk_ii is
   signal drive_on : std_logic;
   signal drive2_select : std_logic;
   signal q6, q7 : std_logic;
-  signal CLK_2M_D: std_logic;
-
+  signal PHASE_ZERO_D: std_logic;
+  signal write_disk_out : std_logic;
+  signal write_disk_addr: unsigned(13 downto 0);
+  signal floppy_write_data_out: unsigned(7 downto 0);
+  signal floppy_write_data: unsigned(7 downto 0);
   signal rom_dout : unsigned(7 downto 0);
 
   -- Current phase of the head.  This is in half-steps to assign
@@ -115,7 +124,8 @@ architecture rtl of disk_ii is
   -- not yet ready.
   signal track_byte_addr : unsigned(14 downto 0);
   signal read_disk : std_logic;         -- When C08C accessed
-
+  signal write_disk : std_logic;        
+  signal select_d : std_logic;
 begin
 
   interpret_io : process (CLK_14M)
@@ -127,7 +137,9 @@ begin
         drive2_select <= '0';
         q6 <= '0';
         q7 <= '0';
+		  floppy_write_data<="00000000";
       else
+		  select_d<=DEVICE_SELECT;
         if DEVICE_SELECT = '1' then
           if A(3) = '0' then                      -- C080 - C087
             motor_phase(TO_INTEGER(A(2 downto 1))) <= A(0);
@@ -135,7 +147,7 @@ begin
             case A(2 downto 1) is
               when "00" => drive_on <= A(0);      -- C088 - C089
               when "01" => drive2_select <= A(0); -- C08A - C08B
-              when "10" => q6 <= A(0);            -- C08C - C08D
+              when "10" =>  q6 <= A(0);  if (A(0)='1' and select_d='0') then floppy_write_data<=D_IN; end if;            -- C08C - C08D
               when "11" => q7 <= A(0);            -- C08E - C08F
               when others => null;
             end case;
@@ -240,16 +252,29 @@ begin
   TRACK <= phase(7 downto 2);
 
   -- Dual-ported RAM holding the contents of the track
-  track_storage : process (CLK_14M)
+  --track_storage : process (CLK_14M)
+  --begin
+  --  if rising_edge(CLK_14M) then
+  --    if ram_we = '1' then
+  --      track_memory(to_integer(ram_write_addr)) <= ram_di;
+  --    end if;
+  --    ram_do <= track_memory(to_integer(track_byte_addr(14 downto 1)));
+  --  end if;
+  --end process;
+
+  write_logic : process (PHASE_ZERO)
   begin
-    if rising_edge(CLK_14M) then
-      if ram_we = '1' then
-        track_memory(to_integer(ram_write_addr)) <= ram_di;
-      end if;
-      ram_do <= track_memory(to_integer(track_byte_addr(14 downto 1)));
+    if falling_edge(PHASE_ZERO) then
+        write_disk_out<='0';
+        if (write_disk ='1') then 
+		    floppy_write_data_out<=floppy_write_data;
+          write_disk_out<='1';
+          write_disk_addr<=track_byte_addr(14 downto 1);
+		  end if;
     end if;
   end process;
 
+  
   -- Go to the next byte when the disk is accessed or if the counter times out
   read_head : process (CLK_14M, reset)
   variable byte_delay : unsigned(5 downto 0);  -- Accounts for disk spin rate
@@ -258,31 +283,39 @@ begin
         track_byte_addr <= (others => '0');
         byte_delay := (others => '0');
     elsif rising_edge(CLK_14M) then
-      CLK_2M_D <= CLK_2M;
-      if CLK_2M = '1' and CLK_2M_D = '0' then
+      PHASE_ZERO_D <= PHASE_ZERO;
+      if PHASE_ZERO = '1' and PHASE_ZERO_D = '0' then
         byte_delay := byte_delay - 1;
-        if (read_disk = '1' and PHASE_ZERO = '1') or byte_delay = 0 then
+        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay = 0 then
           byte_delay := (others => '0');
           if track_byte_addr = X"33FE" then
             track_byte_addr <= (others => '0');
           else
-            track_byte_addr <= track_byte_addr + 1;
+            track_byte_addr <= track_byte_addr + 2;
           end if;
         end if;
       end if;
     end if;
   end process;
 
+DISK_FD_WRITE_DISK <= write_disk_out;
+DISK_FD_READ_DISK <= read_disk;
+DISK_FD_TRACK_ADDR <= write_disk_addr  when  write_disk_out = '1' else track_byte_addr(14 downto 1);
+ram_do <= DISK_FD_DATA_IN;
+DISK_FD_DATA_OUT <= floppy_write_data_out;
+
+  
   rom : entity work.disk_ii_rom port map (
     addr => A(7 downto 0),
     clk  => CLK_14M,
     dout => rom_dout);
 
-  read_disk <= '1' when DEVICE_SELECT = '1' and A(3 downto 0) = x"C" else
-               '0';  -- C08C
+  read_disk <= '1' when DEVICE_SELECT = '1' and A(3 downto 0) = x"C" and q7='0' else '0';  -- C08C
+  write_disk <= '1' when DEVICE_SELECT = '1' and A(3 downto 0) = x"C" and q7='1' else '0';  -- C08C
 
   D_OUT <= rom_dout when IO_SELECT = '1' else
            ram_do when read_disk = '1' and track_byte_addr(0) = '0' else
+           floppy_write_data when write_disk = '1' and track_byte_addr(0) = '0' else
            (others => '0');
 
   track_addr <= track_byte_addr(14 downto 1);
