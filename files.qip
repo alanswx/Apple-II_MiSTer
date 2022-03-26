@@ -5,6 +5,7 @@ set_global_assignment -name VHDL_FILE rtl/mockingboard/via6522.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mockingboard/YM2149.sv
 set_global_assignment -name VHDL_FILE rtl/hdd_rom.vhd
 set_global_assignment -name VHDL_FILE rtl/hdd.vhd
+set_global_assignment -name VERILOG_FILE rtl/track_loader.v
 set_global_assignment -name VERILOG_FILE rtl/ramcard.v
 set_global_assignment -name VERILOG_FILE rtl/clock_card.v
 set_global_assignment -name VERILOG_FILE rtl/rom.v

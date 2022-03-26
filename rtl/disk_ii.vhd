@@ -77,7 +77,8 @@ entity disk_ii is
     A              : in unsigned(15 downto 0);
     D_IN           : in unsigned(7 downto 0);  -- From 6502
     D_OUT          : out unsigned(7 downto 0);  -- To 6502
-    TRACK          : out unsigned(5 downto 0);  -- Current track (0-34)
+    TRACK1         : out unsigned(5 downto 0);  -- Current track (0-34)
+    TRACK2         : out unsigned(5 downto 0);  -- Current track (0-34)
     track_addr     : out unsigned(13 downto 0);
     D1_ACTIVE      : out std_logic;     -- Disk 1 motor on
     D2_ACTIVE      : out std_logic;     -- Disk 2 motor on
@@ -95,7 +96,8 @@ end disk_ii;
 
 architecture rtl of disk_ii is
 
-  signal motor_phase : std_logic_vector(3 downto 0);
+  signal motor_phase1 : std_logic_vector(3 downto 0);
+  signal motor_phase2 : std_logic_vector(3 downto 0);
   signal drive_on : std_logic;
   signal drive2_select : std_logic;
   signal q6, q7 : std_logic;
@@ -109,7 +111,8 @@ architecture rtl of disk_ii is
   -- Current phase of the head.  This is in half-steps to assign
   -- a unique position to the case, say, when both phase 0 and phase 1 are
   -- on simultaneously.  phase(7 downto 2) is the track number
-  signal phase : unsigned(7 downto 0);  -- 0 - 139
+  signal phase1 : unsigned(7 downto 0);  -- 0 - 139
+  signal phase2 : unsigned(7 downto 0);  -- 0 - 139
 
   -- Storage for one track worth of data in "nibblized" form
   type track_ram is array(0 to 6655) of unsigned(7 downto 0);
@@ -126,13 +129,85 @@ architecture rtl of disk_ii is
   signal read_disk : std_logic;         -- When C08C accessed
   signal write_disk : std_logic;        
   signal select_d : std_logic;
+
+
+  function NEXT_PHASE(motor_phase : std_logic_vector(3 downto 0);
+                      phase : unsigned(7 downto 0))
+      return integer is
+      variable phase_change : integer;
+      variable new_phase : integer;
+      variable rel_phase : std_logic_vector(3 downto 0);
+  begin
+      phase_change := 0;
+      new_phase := TO_INTEGER(phase);
+      rel_phase := motor_phase;
+      case phase(2 downto 1) is
+          when "00" =>
+              rel_phase := rel_phase(1 downto 0) & rel_phase(3 downto 2);
+          when "01" =>
+              rel_phase := rel_phase(2 downto 0) & rel_phase(3);
+          when "10" => null;
+          when "11" =>
+              rel_phase := rel_phase(0) & rel_phase(3 downto 1);
+          when others => null;
+      end case;
+      
+      if phase(0) = '1' then            -- Phase is odd
+          case rel_phase is
+              when "0000" => phase_change := 0;
+              when "0001" => phase_change := -3;
+              when "0010" => phase_change := -1;
+              when "0011" => phase_change := -2;
+              when "0100" => phase_change := 1;
+              when "0101" => phase_change := -1;
+              when "0110" => phase_change := 0;
+              when "0111" => phase_change := -1;
+              when "1000" => phase_change := 3;
+              when "1001" => phase_change := 0;
+              when "1010" => phase_change := 1;
+              when "1011" => phase_change := -3;
+              when "1111" => phase_change := 0;
+              when others => null;
+          end case;
+      else                              -- Phase is even
+          case rel_phase is
+              when "0000" => phase_change := 0;
+              when "0001" => phase_change := -2;
+              when "0010" => phase_change := 0;
+              when "0011" => phase_change := -1;
+              when "0100" => phase_change := 2;
+              when "0101" => phase_change := 0;
+              when "0110" => phase_change := 1;
+              when "0111" => phase_change := 0;
+              when "1000" => phase_change := 0;
+              when "1001" => phase_change := 1;
+              when "1010" => phase_change := 2;
+              when "1011" => phase_change := -2;
+              when "1111" => phase_change := 0;
+              when others => null;
+          end case;
+      end if;
+
+      if new_phase + phase_change <= 0 then
+          new_phase := 0;
+      elsif new_phase + phase_change > 139 then
+          new_phase := 139;
+      else
+          new_phase := new_phase + phase_change;
+      end if;
+      return new_phase;
+  end function NEXT_PHASE;
+  
 begin
+
+
 
   interpret_io : process (CLK_14M)
   begin
     if rising_edge(CLK_14M) then
       if reset = '1' then
-        motor_phase <= (others => '0');
+        motor_phase1 <= (others => '0');
+        motor_phase2 <= (others => '0');
         drive_on <= '0';
         drive2_select <= '0';
         q6 <= '0';
@@ -141,8 +216,12 @@ begin
       else
 		  select_d<=DEVICE_SELECT;
         if DEVICE_SELECT = '1' then
-          if A(3) = '0' then                      -- C080 - C087
-            motor_phase(TO_INTEGER(A(2 downto 1))) <= A(0);
+            if A(3) = '0' then                      -- C080 - C087
+            if drive2_select = '0' then
+                motor_phase1(TO_INTEGER(A(2 downto 1))) <= A(0);
+            else
+                motor_phase2(TO_INTEGER(A(2 downto 1))) <= A(0);
+            end if;
           else
             case A(2 downto 1) is
               when "00" => drive_on <= A(0);      -- C088 - C089
@@ -185,72 +264,19 @@ begin
   begin
     if rising_edge(CLK_14M) then
       if reset = '1' then
-        phase <= TO_UNSIGNED(70, 8);    -- Deliberately odd to test reset
+        phase1 <= TO_UNSIGNED(70, 8);    -- Deliberately odd to test reset
+        phase2 <= TO_UNSIGNED(70, 8);    -- Deliberately odd to test reset
       else        
-        phase_change := 0;
-        new_phase := TO_INTEGER(phase);
-        rel_phase := motor_phase;
-        case phase(2 downto 1) is
-          when "00" =>
-            rel_phase := rel_phase(1 downto 0) & rel_phase(3 downto 2);
-          when "01" =>
-            rel_phase := rel_phase(2 downto 0) & rel_phase(3);
-          when "10" => null;
-          when "11" =>
-            rel_phase := rel_phase(0) & rel_phase(3 downto 1);
-          when others => null;
-        end case;
-        
-        if phase(0) = '1' then            -- Phase is odd
-          case rel_phase is
-            when "0000" => phase_change := 0;
-            when "0001" => phase_change := -3;
-            when "0010" => phase_change := -1;
-            when "0011" => phase_change := -2;
-            when "0100" => phase_change := 1;
-            when "0101" => phase_change := -1;
-            when "0110" => phase_change := 0;
-            when "0111" => phase_change := -1;
-            when "1000" => phase_change := 3;
-            when "1001" => phase_change := 0;
-            when "1010" => phase_change := 1;
-            when "1011" => phase_change := -3;
-            when "1111" => phase_change := 0;
-            when others => null;
-          end case;
-        else                              -- Phase is even
-          case rel_phase is
-            when "0000" => phase_change := 0;
-            when "0001" => phase_change := -2;
-            when "0010" => phase_change := 0;
-            when "0011" => phase_change := -1;
-            when "0100" => phase_change := 2;
-            when "0101" => phase_change := 0;
-            when "0110" => phase_change := 1;
-            when "0111" => phase_change := 0;
-            when "1000" => phase_change := 0;
-            when "1001" => phase_change := 1;
-            when "1010" => phase_change := 2;
-            when "1011" => phase_change := -2;
-            when "1111" => phase_change := 0;
-            when others => null;
-          end case;
-        end if;
-
-        if new_phase + phase_change <= 0 then
-          new_phase := 0;
-        elsif new_phase + phase_change > 139 then
-          new_phase := 139;
-        else
-          new_phase := new_phase + phase_change;
-        end if;
-        phase <= TO_UNSIGNED(new_phase, 8);
+        phase1 <= TO_UNSIGNED(NEXT_PHASE(motor_phase1, phase1), 8);
+        phase2 <= TO_UNSIGNED(NEXT_PHASE(motor_phase2, phase2), 8);
       end if;      
     end if;
   end process;
 
-  TRACK <= phase(7 downto 2);
-
+  TRACK1 <=  phase1(7 downto 2);
+  TRACK2 <=  phase2(7 downto 2);
+  
+  
   -- Dual-ported RAM holding the contents of the track
   --track_storage : process (CLK_14M)
   --begin

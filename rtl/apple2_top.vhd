@@ -59,12 +59,14 @@ port (
 	mb_enabled 		: in std_logic;
 
 	-- disk control
-	TRACK 			: out unsigned(5 downto 0);
+	TRACK1 			: out unsigned(5 downto 0);
+	TRACK2			: out unsigned(5 downto 0);
 	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
 	DISK_RAM_DI 	: in  unsigned(7 downto 0);
 	DISK_RAM_DO    : out unsigned(7 downto 0);
 	DISK_RAM_WE 	: in  std_logic;
-	DISK_ACT       : out std_logic;
+	DISK_ACT_1       : out std_logic;
+	DISK_ACT_2       : out std_logic;
    DISK_FD_WRITE_DISK      : out std_logic;    
    DISK_FD_READ_DISK      : out std_logic;    
    DISK_FD_TRACK_ADDR : out unsigned(13 downto 0);  -- Address for track RAM
@@ -171,9 +173,7 @@ architecture arch of apple2_top is
   signal flash_clk : unsigned(22 downto 0) := (others => '0');
   signal power_on_reset : std_logic := '1';
   signal reset : std_logic;
-
-  signal D1_ACTIVE, D2_ACTIVE : std_logic;
-
+  
   signal a_ram: unsigned(17 downto 0);
   
   signal psg_audio_l : unsigned(9 downto 0);
@@ -336,10 +336,11 @@ begin
     A              => ADDR,
     D_IN           => D,
     D_OUT          => DISK_DO,
-    TRACK          => TRACK,
+    TRACK1          => TRACK1,
+    TRACK2          => TRACK2,
     TRACK_ADDR     => open,
-    D1_ACTIVE      => D1_ACTIVE,
-    D2_ACTIVE      => D2_ACTIVE,
+    D1_ACTIVE      => DISK_ACT_1,
+    D2_ACTIVE      => DISK_ACT_2,
     ram_write_addr => DISK_RAM_ADDR,
     ram_di         => DISK_RAM_DI,
     ram_we         => DISK_RAM_WE,
@@ -352,7 +353,6 @@ begin
 
     );
 
-  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
   DISK_RAM_DO <= (others => '0');
 
   hdd : entity work.hdd port map (
