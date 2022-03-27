@@ -236,8 +236,10 @@ begin
     end if;
   end process;
 
-  D1_ACTIVE <= drive_on and not drive2_select;
-  D2_ACTIVE <= drive_on and drive2_select;
+  --D1_ACTIVE <= drive_on and not drive2_select;
+  --D2_ACTIVE <= drive_on and drive2_select;
+  D1_ACTIVE <= not drive2_select;
+  D2_ACTIVE <= drive2_select;
 
   -- There are two cases:
   --
