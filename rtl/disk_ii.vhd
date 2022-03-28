@@ -314,7 +314,8 @@ begin
       PHASE_ZERO_D <= PHASE_ZERO;
       if PHASE_ZERO = '1' and PHASE_ZERO_D = '0' then
         byte_delay := byte_delay - 1;
-        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay = 0 then
+       -- if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay = 0 then
+        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1')  then
           byte_delay := (others => '0');
           if track_byte_addr = X"33FE" then
             track_byte_addr <= (others => '0');

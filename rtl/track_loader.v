@@ -32,12 +32,26 @@ reg  [63:0] disk_size;
 // when we write to the disk, we need to mark it dirty
 reg floppy_track_dirty;
 
+reg [13:0] fd_track_addr_base;
+reg [13:0] fd_track_addr_high;
+
 always @(posedge clk) begin
         reg       wr_state;
         reg [5:0] cur_track;
         reg       old_ack ;
         reg [1:0] state;
-		  
+	reg fd_dirty;
+	reg flush;
+
+	flush<=0;
+
+        fd_dirty<=floppy_track_dirty;
+
+	if (fd_dirty==0 && floppy_track_dirty==1 && fd_write_disk) begin
+		fd_track_addr_base<=fd_track_addr;
+
+		//$display("WRITE: fd_track_addr %x fd_data_do %x ",fd_track_addr,fd_data_do);
+	end	
 
        if (img_mounted) begin
                //disk_mounted <= img_size != 0;
@@ -50,9 +64,15 @@ always @(posedge clk) begin
         if (fd_write_disk)
         begin
                 floppy_track_dirty<=1;
+		fd_track_addr_high<=fd_track_addr;
                 // reset timer
         end
 
+	if (floppy_track_dirty && (fd_track_addr_high - fd_track_addr_base == 'h160))
+	begin
+		$display("FLUSH");
+		flush<=1;
+	end
 
         if(reset) begin
                 state <= 0;
@@ -65,7 +85,7 @@ always @(posedge clk) begin
 
                 2'b00:  // looking for a track change or a timeout
 
-                if((cur_track != track) || (fdd_mounted && ~img_mounted)) begin
+                if((cur_track != track) || (fdd_mounted && ~img_mounted) || flush) begin
                         fdd_mounted <= 0;
                         if(disk_size>0) begin
                                 if (floppy_track_dirty)
@@ -117,6 +137,9 @@ always @(posedge clk) begin
                 end
         endcase
 end
+
+
+// when we write 0x162 bytes, then we know we can flush the track
 
 `ifdef VERILATOR
 bram #(8,14) floppy_dpram_onetrack
