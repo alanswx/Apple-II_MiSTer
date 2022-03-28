@@ -96,12 +96,12 @@ READ_TIME
         lda  MIN_ONES,X
         ora  #$80
         sta  $020D
-        lda  SEC_TENS,X
-        ora  #$80
-        sta  $020F
-        lda  SEC_ONES,X
-        ora  #$80
-        sta  $020D
+        ;lda  SEC_TENS,X
+        ;ora  #$80
+        ;sta  $020F
+        ;lda  SEC_ONES,X
+        ;ora  #$80
+        ;sta  $020D
         lda  #$8D			; carrage return
         sta  $020E
         ldx  #$0E
