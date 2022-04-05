@@ -137,8 +137,10 @@ always @(posedge clk) begin
                                 lba_fdd <= lba_fdd + 1'd1;
                         end else if(old_ack & ~sd_ack) begin
                                 track_sec <= track_sec + 1'd1;
-                                if(~sd_rd) state <= 2'b0;
-                                cpu_wait_fdd <= 0;
+				if(~sd_rd) begin
+				       	state <= 2'b0;
+                                	cpu_wait_fdd <= 0;
+				end
                         end
                 end
         endcase

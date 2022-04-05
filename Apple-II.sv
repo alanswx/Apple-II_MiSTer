@@ -555,11 +555,11 @@ wire fd_disk_1;
 wire fd_disk_2;
 
 
-track_loader track_loader_a
+track_loader #(.drive_num('d0)) track_loader_a
 (
     .clk(clk_sys),
     .reset(dd_reset),
-	 .active(fd_disk_1),
+    .active(fd_disk_1),
     .lba_fdd(sd_lba[0]),
     .track(track1),
     .img_mounted(img_mounted[0]),
@@ -577,11 +577,11 @@ track_loader track_loader_a
     .fd_data_do(fd_data_do),
     .fd_data_in(fd_data_in1)
 );
-track_loader track_loader_b
+track_loader #(.drive_num('d2)) track_loader_b
 (
     .clk(clk_sys),
     .reset(dd_reset),
-	 .active(fd_disk_2),
+    .active(fd_disk_2),
     .lba_fdd(sd_lba[2]),
     .track(track2),
     .img_mounted(img_mounted[2]),

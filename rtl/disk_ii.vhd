@@ -102,6 +102,7 @@ architecture rtl of disk_ii is
   signal drive2_select : std_logic;
   signal q6, q7 : std_logic;
   signal PHASE_ZERO_D: std_logic;
+  signal CLK_2M_D: std_logic;
   signal write_disk_out : std_logic;
   signal write_disk_addr: unsigned(13 downto 0);
   signal floppy_write_data_out: unsigned(7 downto 0);
@@ -114,10 +115,6 @@ architecture rtl of disk_ii is
   signal phase1 : unsigned(7 downto 0);  -- 0 - 139
   signal phase2 : unsigned(7 downto 0);  -- 0 - 139
 
-  -- Storage for one track worth of data in "nibblized" form
-  type track_ram is array(0 to 6655) of unsigned(7 downto 0);
-  -- Double-ported RAM for holding a track
-  signal track_memory : track_ram;
   signal ram_do : unsigned(7 downto 0);
 
   -- Lower bit indicates whether disk data is "valid" or not
@@ -125,7 +122,9 @@ architecture rtl of disk_ii is
   -- This makes it look to the software like new data is constantly
   -- being read into the shift register, which indicates the data is
   -- not yet ready.
-  signal track_byte_addr : unsigned(14 downto 0);
+  signal track_byte_addr: unsigned(14 downto 0);
+  signal track_byte_addr_1 : unsigned(14 downto 0);
+  signal track_byte_addr_2 : unsigned(14 downto 0);
   signal read_disk : std_logic;         -- When C08C accessed
   signal write_disk : std_logic;        
   signal select_d : std_logic;
@@ -260,9 +259,6 @@ begin
   --
   
   update_phase : process (CLK_14M)
-    variable phase_change : integer;
-    variable new_phase : integer;
-    variable rel_phase : std_logic_vector(3 downto 0);
   begin
     if rising_edge(CLK_14M) then
       if reset = '1' then
@@ -278,58 +274,73 @@ begin
   TRACK1 <=  phase1(7 downto 2);
   TRACK2 <=  phase2(7 downto 2);
   
-  
-  -- Dual-ported RAM holding the contents of the track
-  --track_storage : process (CLK_14M)
-  --begin
-  --  if rising_edge(CLK_14M) then
-  --    if ram_we = '1' then
-  --      track_memory(to_integer(ram_write_addr)) <= ram_di;
-  --    end if;
-  --    ram_do <= track_memory(to_integer(track_byte_addr(14 downto 1)));
-  --  end if;
-  --end process;
-
   write_logic : process (PHASE_ZERO)
   begin
     if falling_edge(PHASE_ZERO) then
         write_disk_out<='0';
         if (write_disk ='1') then 
-		    floppy_write_data_out<=floppy_write_data;
-          write_disk_out<='1';
-          write_disk_addr<=track_byte_addr(14 downto 1);
-		  end if;
+	    floppy_write_data_out<=floppy_write_data;
+            write_disk_out<='1';
+	    if (drive2_select='0') then
+            	write_disk_addr <= track_byte_addr_1(14 downto 1);
+	    else
+            	write_disk_addr <= track_byte_addr_2(14 downto 1);
+	    end if;
+            --write_disk_addr<=track_addr;
+        end if;
     end if;
   end process;
 
   
   -- Go to the next byte when the disk is accessed or if the counter times out
   read_head : process (CLK_14M, reset)
-  variable byte_delay : unsigned(5 downto 0);  -- Accounts for disk spin rate
+  variable byte_delay_1 : unsigned(5 downto 0);  -- Accounts for disk spin rate
+  variable byte_delay_2 : unsigned(5 downto 0);  -- Accounts for disk spin rate
   begin
     if reset = '1' then
-        track_byte_addr <= (others => '0');
-        byte_delay := (others => '0');
+        track_byte_addr_1 <= (others => '0');
+        track_byte_addr_2 <= (others => '0');
+        byte_delay_1 := (others => '0');
+        byte_delay_2 := (others => '0');
     elsif rising_edge(CLK_14M) then
       PHASE_ZERO_D <= PHASE_ZERO;
+      CLK_2M_D <= CLK_2M;
+      if CLK_2M = '1'  and CLK_2M_D='0' then
+	      if (drive2_select='0') then
+        	byte_delay_1 := byte_delay_1 - 1;
+	      else
+        	byte_delay_2 := byte_delay_2 - 1;
+	      end if;
+      end if;
       if PHASE_ZERO = '1' and PHASE_ZERO_D = '0' then
-        byte_delay := byte_delay - 1;
-       -- if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay = 0 then
-        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1')  then
-          byte_delay := (others => '0');
-          if track_byte_addr = X"33FE" then
-            track_byte_addr <= (others => '0');
+       if (drive2_select='0') then
+        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay_1 = 0 then
+        --if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1')  then
+          byte_delay_1 := (others => '0');
+          if track_byte_addr_1 = X"33FE" then
+            track_byte_addr_1 <= (others => '0');
           else
-            track_byte_addr <= track_byte_addr + 2;
+            track_byte_addr_1 <= track_byte_addr_1 + 2;
           end if;
         end if;
+      else
+        if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1') or byte_delay_2 = 0 then
+        --if ((read_disk = '1' or write_disk = '1' )and PHASE_ZERO = '1')  then
+          byte_delay_2 := (others => '0');
+          if track_byte_addr_2 = X"33FE" then
+            track_byte_addr_2 <= (others => '0');
+          else
+            track_byte_addr_2 <= track_byte_addr_2 + 2;
+          end if;
+        end if;
+      end if;
       end if;
     end if;
   end process;
 
 DISK_FD_WRITE_DISK <= write_disk_out;
 DISK_FD_READ_DISK <= read_disk;
-DISK_FD_TRACK_ADDR <= write_disk_addr  when  write_disk_out = '1' else track_byte_addr(14 downto 1);
+DISK_FD_TRACK_ADDR <= write_disk_addr  when  write_disk_out = '1' else track_byte_addr_1(14 downto 1)  when drive2_select='0' else track_byte_addr_2(14 downto 1);
 ram_do <= DISK_FD_DATA_IN;
 DISK_FD_DATA_OUT <= floppy_write_data_out;
 
@@ -347,6 +358,7 @@ DISK_FD_DATA_OUT <= floppy_write_data_out;
            floppy_write_data when write_disk = '1' and track_byte_addr(0) = '0' else
            (others => '0');
 
-  track_addr <= track_byte_addr(14 downto 1);
+  track_byte_addr <= track_byte_addr_1  when drive2_select='0' else track_byte_addr_2;
+  track_addr <= track_byte_addr_1(14 downto 1)  when drive2_select='0' else track_byte_addr_2(14 downto 1);
   
 end rtl;
