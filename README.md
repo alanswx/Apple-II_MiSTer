@@ -10,7 +10,7 @@ Port for the MiST: http://ws0.org/tag/apple2/
 
 ## Features
 
-* disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
+* disk loading via osd (only nib supports write) supported formats: .nib, .dsk, .do, .po
 * HDD loading via osd
 * Tape loading via the ADC-in
 * Selectable 6502 or 65C02 CPU
@@ -18,6 +18,8 @@ Port for the MiST: http://ws0.org/tag/apple2/
 * scanlines
 * color, amber, green and black&white monitor
 * language card in slot 0
+* ProDOS compatible clock card in slot 1
+* Super Serial card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/index.php?p=1_28)
 * Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4

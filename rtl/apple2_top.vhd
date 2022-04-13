@@ -56,22 +56,18 @@ port (
 	joy_an         : in  std_logic_vector(15 downto 0);
 
 	-- mocking board
-	mb_enabled 		: in std_logic;
+	mb_enabled     : in std_logic;
 
 	-- disk control
-	TRACK1 			: out unsigned(5 downto 0);
-	TRACK2			: out unsigned(5 downto 0);
-	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
-	DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	DISK_RAM_DO    : out unsigned(7 downto 0);
-	DISK_RAM_WE 	: in  std_logic;
-	DISK_ACT_1       : out std_logic;
-	DISK_ACT_2       : out std_logic;
-   DISK_FD_WRITE_DISK      : out std_logic;    
-   DISK_FD_READ_DISK      : out std_logic;    
-   DISK_FD_TRACK_ADDR : out unsigned(13 downto 0);  -- Address for track RAM
-   DISK_FD_DATA_IN : in unsigned(7 downto 0);  
-   DISK_FD_DATA_OUT : out unsigned(7 downto 0) ;	 
+	TRACK1         : out unsigned(5 downto 0);
+	TRACK2         : out unsigned(5 downto 0);
+	DISK_ACT_1     : out std_logic;
+	DISK_ACT_2     : out std_logic;
+	DISK_FD_WRITE_DISK   : out std_logic;    
+	DISK_FD_READ_DISK    : out std_logic;    
+	DISK_FD_TRACK_ADDR   : out unsigned(13 downto 0);  -- Address for track RAM
+	DISK_FD_DATA_IN      : in unsigned(7 downto 0);  
+	DISK_FD_DATA_OUT     : out unsigned(7 downto 0) ;	 
 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
@@ -155,18 +151,14 @@ architecture arch of apple2_top is
     D_OUT          : out unsigned(7 downto 0);  -- To 6502
     TRACK1         : out unsigned(5 downto 0);  -- Current track (0-34)
     TRACK2         : out unsigned(5 downto 0);  -- Current track (0-34)
-    track_addr     : out unsigned(13 downto 0);
     D1_ACTIVE      : out std_logic;     -- Disk 1 motor on
     D2_ACTIVE      : out std_logic;     -- Disk 2 motor on
-    ram_write_addr : in unsigned(12 downto 0);  -- Address for track RAM
-    ram_di         : in unsigned(7 downto 0);  -- Data to track RAM
-    ram_we         : in std_logic;              -- RAM write enable
 
-    DISK_FD_WRITE_DISK      : out std_logic;
+    DISK_FD_WRITE_DISK     : out std_logic;
     DISK_FD_READ_DISK      : out std_logic;
-    DISK_FD_TRACK_ADDR : out unsigned(13 downto 0);  -- Address for track RAM
-    DISK_FD_DATA_IN : in unsigned(7 downto 0);
-    DISK_FD_DATA_OUT : out unsigned(7 downto 0)
+    DISK_FD_TRACK_ADDR     : out unsigned(13 downto 0);  -- Address for track RAM
+    DISK_FD_DATA_IN        : in unsigned(7 downto 0);
+    DISK_FD_DATA_OUT       : out unsigned(7 downto 0)
     );
   end component;
 
@@ -364,24 +356,19 @@ begin
     A              => ADDR,
     D_IN           => D,
     D_OUT          => DISK_DO,
-    TRACK1          => TRACK1,
-    TRACK2          => TRACK2,
-    TRACK_ADDR     => open,
+    TRACK1         => TRACK1,
+    TRACK2         => TRACK2,
     D1_ACTIVE      => DISK_ACT_1,
     D2_ACTIVE      => DISK_ACT_2,
-    ram_write_addr => DISK_RAM_ADDR,
-    ram_di         => DISK_RAM_DI,
-    ram_we         => DISK_RAM_WE,
 
-	 DISK_FD_WRITE_DISK      => DISK_FD_WRITE_DISK,
+    DISK_FD_WRITE_DISK     => DISK_FD_WRITE_DISK,
     DISK_FD_READ_DISK      => DISK_FD_READ_DISK,
-    DISK_FD_TRACK_ADDR      => DISK_FD_TRACK_ADDR,
-    DISK_FD_DATA_IN      => DISK_FD_DATA_IN,
-    DISK_FD_DATA_OUT      => DISK_FD_DATA_OUT
+    DISK_FD_TRACK_ADDR     => DISK_FD_TRACK_ADDR,
+    DISK_FD_DATA_IN        => DISK_FD_DATA_IN,
+    DISK_FD_DATA_OUT       => DISK_FD_DATA_OUT
 
     );
 
-  DISK_RAM_DO <= (others => '0');
 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,

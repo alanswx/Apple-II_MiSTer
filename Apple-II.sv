@@ -383,19 +383,15 @@ apple2_top apple2_top
 
 	.TRACK1(track1),
 	.TRACK2(track2),
-	.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
-	.DISK_RAM_DI(sd_buff_dout),
-	.DISK_RAM_DO(/*sd_buff_din[0]*/),
-	.DISK_RAM_WE(sd_buff_wr & sd_ack[0]),
 	
 	.DISK_ACT_1(fd_disk_1),
 	.DISK_ACT_2(fd_disk_2),
 	
-   .DISK_FD_READ_DISK(fd_read_disk),
-   .DISK_FD_WRITE_DISK(fd_write_disk),
-   .DISK_FD_TRACK_ADDR(fd_track_addr),
-   .DISK_FD_DATA_IN(fd_data_in),
-   .DISK_FD_DATA_OUT(fd_data_do),
+	.DISK_FD_READ_DISK(fd_read_disk),
+	.DISK_FD_WRITE_DISK(fd_write_disk),
+	.DISK_FD_TRACK_ADDR(fd_track_addr),
+	.DISK_FD_DATA_IN(fd_data_in),
+	.DISK_FD_DATA_OUT(fd_data_do),
 
 	.HDD_SECTOR(sd_lba[1]),
 	.HDD_READ(hdd_read),
@@ -600,132 +596,6 @@ track_loader #(.drive_num('d2)) track_loader_b
     .fd_data_in(fd_data_in2)
 );
 
-
-
-
-
-
-
-`ifdef OFF
-
-assign      sd_lba[0] = lba_fdd;
-wire  [5:0] track;
-reg   [3:0] track_sec;
-reg         cpu_wait_fdd = 0;
-reg  [31:0] lba_fdd;
-reg       fd_write_pending = 0;
-
-reg       fdd_mounted ;
-wire [63:0] disk_size;
-
-// when we write to the disk, we need to mark it dirty
-reg floppy_track_dirty;
-
-
-always @(posedge clk_sys) begin
-        reg       wr_state;
-        reg [5:0] cur_track;
-        reg       old_ack ;
-        reg [1:0] state;
-		  
-       if (img_mounted[0]) begin
-               //disk_mounted <= img_size != 0;
-					disk_size <= img_size;
-       end
-
-		  
-		  
-        old_ack <= sd_ack[0];
-        fdd_mounted <= fdd_mounted | img_mounted[0];
-
-        if (fd_write_disk)
-        begin
-                floppy_track_dirty<=1;
-                // reset timer
-        end
-
-        if(dd_reset) begin
-                state <= 0;
-                cpu_wait_fdd <= 0;
-                sd_rd[0] <= 0;
-                fd_write_pending<=0;
-                floppy_track_dirty<=0;
-        end
-        else case(state)
-                2'b00:  // looking for a track change or a timeout
-                if((cur_track != track) || (fdd_mounted && ~img_mounted[0])) begin
-
-
-                        fdd_mounted <= 0;
-                        if(disk_size) begin
-                                if (floppy_track_dirty)
-                                begin
-                                        $display("THIS TRACK HAS CHANGES cur_track %x track %x",cur_track,track);
-                                        track_sec <= 0;
-                                        floppy_track_dirty<=0;
-                                        lba_fdd <= 13 * cur_track;
-                                        state <= 2'b01;
-                                        sd_wr[0] <= 1;
-                                        cpu_wait_fdd <= 1;
-                                end
-                                else
-                                        state<=2'b10;
-                        end
-                end
-                2'b01:  // write data
-                begin
-                        if(~old_ack & sd_ack[0]) begin
-                                if(track_sec >= 12) sd_wr[0] <= 0;
-                                lba_fdd <= lba_fdd + 1'd1;
-                        end else if(old_ack & ~sd_ack[0]) begin
-                                track_sec <= track_sec + 1'd1;
-                                if(~sd_wr[0]) state <= 2'b10;
-                        end
-                end
-                2'b10:  // start read
-                begin
-                        cur_track <= track;
-                        track_sec <= 0;
-                        lba_fdd <= 13 * track;
-                        state <= 2'b11;
-                        sd_rd[0] <= 1;
-                        cpu_wait_fdd <= 1;
-                end
-                2'b11:  // read data
-                begin
-                        if(~old_ack & sd_ack[0]) begin
-                                if(track_sec >= 12) sd_rd[0] <= 0;
-                                lba_fdd <= lba_fdd + 1'd1;
-                        end else if(old_ack & ~sd_ack[0]) begin
-                                track_sec <= track_sec + 1'd1;
-                                if(~sd_rd[0]) state <= 2'b0;
-                                cpu_wait_fdd <= 0;
-                        end
-                end
-        endcase
-end
-wire	fd_write_disk;
-wire	fd_read_disk;
-wire [13:0] fd_track_addr;
-wire [7:0] fd_data_in;
-wire [7:0] fd_data_do;
-
-dpram #(14,8) floppy_dpram
-(
-	.clock_a(clk_sys),
-	.address_a({track_sec, sd_buff_addr}),
-	.wren_a(sd_buff_wr & sd_ack[0]),
-	.data_a(sd_buff_dout),
-	.q_a(sd_buff_din[0]),
-	
-	.clock_b(clk_sys),
-	.address_b(fd_track_addr),
-	.wren_b(fd_write_disk),
-	.data_b(fd_data_do),
-	.q_b(fd_data_in)
-);
-
-`endif
 
 
 wire tape_adc, tape_adc_act;

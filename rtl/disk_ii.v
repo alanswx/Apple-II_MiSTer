@@ -74,12 +74,8 @@ module disk_ii(
     D_OUT,
     TRACK1,
     TRACK2,
-    track_addr,
     D1_ACTIVE,
     D2_ACTIVE,
-    ram_write_addr,
-    ram_di,
-    ram_we,
     DISK_FD_WRITE_DISK,
     DISK_FD_READ_DISK,
     DISK_FD_TRACK_ADDR,
@@ -97,12 +93,8 @@ module disk_ii(
     output [7:0]  D_OUT;		// To 6502
     output [5:0]  TRACK1;		// Current track (0-34)
     output [5:0]  TRACK2;		// Current track (0-34)
-    output [13:0] track_addr;
     output        D1_ACTIVE;		// Disk 1 motor on
     output        D2_ACTIVE;		// Disk 2 motor on
-    input [12:0]  ram_write_addr;		// Address for track RAM
-    input [7:0]   ram_di;		// Data to track RAM
-    input         ram_we;		// RAM write enable
     
     output        DISK_FD_WRITE_DISK;
     output        DISK_FD_READ_DISK;
@@ -293,7 +285,10 @@ module disk_ii(
             end
         end
     end
-    
+   
+    // The disk stays on for a second after the motor is turned off.. 
+    // so if we use the drive_on flag, we would need to add a timer, plus some
+    // inertia - for now we leave the signal out 
     //assign D1_ACTIVE = drive_on & (~drive2_select);
     //assign D2_ACTIVE = drive_on & drive2_select;
     assign D1_ACTIVE = (~drive2_select);
@@ -340,18 +335,6 @@ module disk_ii(
     
     assign TRACK1 = phase1[7:2];
     assign TRACK2 = phase2[7:2];
-    
-    // Dual-ported RAM holding the contents of the track
-    //track_storage : process (CLK_14M)
-    //begin
-    //  if rising_edge(CLK_14M) then
-    //    if ram_we = '1' then
-    //      track_memory(to_integer(ram_write_addr)) <= ram_di;
-    //    end if;
-    //    ram_do <= track_memory(to_integer(track_byte_addr(14 downto 1)));
-    //  end if;
-    //end process;
-    
     
     always @(negedge PHASE_ZERO)
     begin: write_logic
@@ -402,7 +385,6 @@ module disk_ii(
 		if (D1_ACTIVE) 
 		begin
                 	if (((read_disk == 1'b1 | write_disk == 1'b1) & PHASE_ZERO == 1'b1) | byte_delay_1 == 0)
-                //if (((read_disk == 1'b1 | write_disk == 1'b1) & PHASE_ZERO == 1'b1) )
                 	begin
                     		byte_delay_1 <= 6'b0;
                     		if (track_byte_addr_1 == 16'h33FE)
@@ -450,6 +432,5 @@ module disk_ii(
                    (write_disk == 1'b1 & track_byte_addr[0] == 1'b0) ? floppy_write_data : 
                    8'b0;
     
-    assign track_addr = track_byte_addr[14:1];
     
 endmodule
