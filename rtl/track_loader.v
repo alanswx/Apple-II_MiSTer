@@ -150,16 +150,16 @@ end
 // when we write 0x162 bytes, then we know we can flush the track
 
 `ifdef VERILATOR
-bram #(8,14) floppy_dpram_onetrack
+bram #(8,13) floppy_dpram_onetrack
 (
         .clock_a(clk),
-        .address_a({1'b0,track_sec, sd_buff_addr}),
+        .address_a({track_sec, sd_buff_addr}),
         .wren_a(sd_buff_wr & sd_ack),
         .data_a(sd_buff_dout),
         .q_a(sd_buff_din),
 
         .clock_b(clk),
-        .address_b(fd_track_addr),
+        .address_b(fd_track_addr[12:0]),
         .wren_b(fd_write_disk & active), 
         .data_b(fd_data_do),
         .q_b(fd_data_in)
@@ -167,16 +167,16 @@ bram #(8,14) floppy_dpram_onetrack
 
 `else
 
-dpram #(14,8) floppy_dpram
+dpram #(13,8) floppy_dpram
 (
 	.clock_a(clk),
-	.address_a({1'b0,track_sec, sd_buff_addr}),
+	.address_a({track_sec, sd_buff_addr}),
 	.wren_a(sd_buff_wr & sd_ack),
 	.data_a(sd_buff_dout),
 	.q_a(sd_buff_din),
 
 	.clock_b(clk),
-	.address_b(fd_track_addr),
+	.address_b(fd_track_addr[12:0]),
 	.wren_b(fd_write_disk & active),
 	.data_b(fd_data_do),
 	.q_b(fd_data_in)
