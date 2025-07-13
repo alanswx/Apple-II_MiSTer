@@ -411,7 +411,7 @@ begin
     );
 
 	 
-  DISK_ACT <= not (D1_ACTIVE or D2_ACTIVE);
+  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
 
   disk : entity work.disk_ii port map (
     CLK_14M        => CLK_14M,
