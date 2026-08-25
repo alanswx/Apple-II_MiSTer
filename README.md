@@ -26,7 +26,9 @@ NOTE: only .nib will persist saves to disk
 * Super Serial Card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
-* Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
+* Mockingboard model A (two AY-3-8913 chips for six audio channels), selectable in slot 4 or 5
+* Apple Mouse card, selectable in slot 4 or 5
+* NTSC or PAL timing
 
 ## Keyboard shortcuts
 
@@ -42,8 +44,8 @@ NOTE: only .nib will persist saves to disk
 * Slot 1 - clock card (PRODOS compatible)
 * Slot 2 - Super Serial Card
 * Slot 3 - 80 col + 64K RAM expansion (//e)
-* Slot 4 - Mockinboard model A (six audio channels)
-* Slot 5 - Saturn 128kb RAM expansion (total of 256kb)
+* Slot 4 - Mockingboard model A (six audio channels), mouse, or empty (OSD-selectable)
+* Slot 5 - Mouse, Mockingboard, Saturn 128kb RAM expansion (total of 256kb), or empty (OSD-selectable)
 * Slot 6 - Disk Drive controller
 * Slot 7 - Hard Disk Drive controller
 
