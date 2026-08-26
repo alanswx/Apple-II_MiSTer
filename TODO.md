@@ -94,10 +94,11 @@ Do **not** port Appletini's `onee_speaker_audio.sv` — the framework already
 DC-blocks at ~15 Hz (`sys/audio_out.sv:224-243`, `sys/iir_filter.v:189-213`), so
 that module is redundant. The real problems are different:
 
-1. **Mixer overflow (bug).** `rtl/apple2_top.vhd:607-608` sums two Mockingboards
-   and the speaker as three `unsigned(9 downto 0)`. Each Mockingboard peaks at
-   765 (`mockingboard.vhd:171`), so the sum reaches 765+765+128 = **1658**, which
-   does not fit in 10 bits and **wraps**. Widen to 12 bits and scale, or saturate.
+1. ~~**Mixer overflow (bug).**~~ **Done.** `apple2_top.vhd` now sums in 12 bits
+   and saturates at 1023 instead of wrapping 1658 to 634. Clamping was chosen over
+   rescaling so the gain - and so the loudness of the common one-board case, 893 -
+   is unchanged; only the rare both-boards-flat-out peak clips. Not yet listened to
+   on hardware.
 2. **The speaker is not band-limited.** `$C030` toggles a flip-flop
    (`apple2.vhd:321-328`) that lands in `audio(7)` and is point-sampled at 48 kHz.
    The latch changes on 1 MHz boundaries, so every transition above 24 kHz aliases

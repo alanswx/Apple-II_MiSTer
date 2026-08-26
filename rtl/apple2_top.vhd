@@ -238,6 +238,8 @@ architecture arch of apple2_top is
 
   
   signal audio       : unsigned(9 downto 0);
+  signal audio_sum_l : unsigned(11 downto 0);
+  signal audio_sum_r : unsigned(11 downto 0);
 
   signal joyx       : std_logic;
   signal joyy       : std_logic;
@@ -620,7 +622,24 @@ begin
 
   audio(6 downto 0) <= (others => '0');
   audio(9 downto 8) <= (others => '0');
-  AUDIO_R <= std_logic_vector(psg_4_audio_r + psg_5_audio_r + audio);
-  AUDIO_L <= std_logic_vector(psg_4_audio_l + psg_5_audio_l + audio);
+  -- Sum in 12 bits, then clamp instead of letting it wrap.
+  --
+  -- Each Mockingboard peaks at 765 - three 8-bit PSG channels summed in
+  -- mockingboard.vhd:171 - and the speaker adds 128, so two boards plus the
+  -- speaker reach 1658. That does not fit in 10 bits, and the old unclamped
+  -- 10-bit add wrapped it to 634: a full-scale discontinuity on exactly the
+  -- loudest passages, which is far worse than clipping.
+  --
+  -- Clamping rather than rescaling is deliberate. The common case - one
+  -- Mockingboard plus the speaker, 893 - already fits, so the gain and the
+  -- perceived loudness are unchanged; only the rare both-boards-flat-out peak
+  -- is affected, and there it clips cleanly.
+  audio_sum_l <= resize(psg_4_audio_l, 12) + resize(psg_5_audio_l, 12) + resize(audio, 12);
+  audio_sum_r <= resize(psg_4_audio_r, 12) + resize(psg_5_audio_r, 12) + resize(audio, 12);
+
+  AUDIO_R <= std_logic_vector(audio_sum_r(9 downto 0)) when audio_sum_r < 1024
+             else (others => '1');
+  AUDIO_L <= std_logic_vector(audio_sum_l(9 downto 0)) when audio_sum_l < 1024
+             else (others => '1');
 
 end arch;

@@ -213,9 +213,13 @@ Things that have bitten us. Check these before debugging something weird.
   both it and `OE` for the whole cycle. This bit `no_slot_clock.v` during
   development; its testbench now models a full 14-clock cycle and samples late so
   the mistake cannot come back.
-- **Audio mixing can overflow.** `apple2_top.vhd:622-623` sums two Mockingboards and
-  the speaker as three `unsigned(9 downto 0)` values. Peak is 765+765+128 = 1658,
-  which does not fit in 10 bits and **wraps**. Widen before adding any audio source.
+- **The audio mix clamps at 1023.** Two Mockingboards peak at 765 each
+  (`mockingboard.vhd:171`) plus 128 for the speaker = 1658, which does not fit in
+  the 10-bit `AUDIO_L`/`AUDIO_R` ports. It used to wrap; `apple2_top.vhd` now sums
+  in 12 bits and saturates. Gain is unchanged, so the common case (one board plus
+  speaker, 893) sounds exactly as before. **Any new audio source eats the
+  remaining headroom** - re-check the peak, and consider rescaling rather than
+  piling more onto the clamp.
 - **The speaker is not band-limited.** `$C030` toggles a flip-flop
   (`apple2.vhd:321-328`) that lands in `audio(7)` and is point-sampled at 48 kHz, so
   transitions above 24 kHz alias. The framework already DC-blocks at ~15 Hz
