@@ -205,26 +205,55 @@ that module is redundant. The real problems are different:
    DC-blocks at ~15 Hz, and the headroom question was settled by the saturating
    mix in item 1.
 
-### 4. ProDOS 2.4.x does not boot — blocks mb-audit
-**Status:** newly found, not diagnosed · **Effort:** unknown
+### 4. ProDOS does not boot from floppy (any version)
+**Status:** localised, root cause not proven · **Effort:** unknown
 
-ProDOS 8 **2.4.1 and 2.4.3** both print their banner and then BRK into the
-monitor (`P=32`, B set, `X=$C3`). Reproduced on `ALECLOCK.dsk` and on
-`mb-audit-v1.60`, and **on the pre-existing `Apple-II_20260603.rbf` as well**, so
-it is not caused by any of the recent work. DOS 3.3 and ProDOS-based games boot
-fine, so it is specific to 2.4.x.
+Not a ProDOS 2.4 bug, and not a ProDOS bug. **ProDOS cannot boot from the Disk II
+floppy path on this core**, and never could — it reproduces on the pre-existing
+`Apple-II_20260603.rbf`.
 
-`X=$C3` at the BRK hints at slot-3 scanning — 2.4.x probes hardware far more
-aggressively than 1.1.1 or 2.0.3.
+Symptom is always the same: the ProDOS banner prints, then the CPU BRKs into the
+monitor at a low address with zero page all `00` — PC has run away into cleared
+memory. `X=$C3 Y=$FA` recurs across images.
 
-This matters beyond the disks above: **mb-audit ships as a ProDOS 2.4.x disk**,
-so until this is fixed the Mockingboard test suite cannot run on this core, and
-item 2's per-test claims (T6522_3/4, F/10/11, 15) cannot be verified on hardware.
+What the bisect established:
 
-Note mb-audit is distributed as `.po`, which this core serves raw. Convert to DOS
-order first — the DOS/ProDOS interleave is self-inverse:
-`[0,14,13,12,11,10,9,8,7,6,5,4,3,2,1,15]`, applied per 16-sector track. A correct
-conversion puts the ProDOS volume directory at offset `0x0B00`.
+| test | result |
+|---|---|
+| ProDOS 2.4.1 (`ALECLOCK.dsk`), 2.4.3 (`mb-audit`) floppy | crash |
+| **ProDOS 1.0.1** (`ProDos Users Disk`) floppy | **crash — so not 2.4-specific** |
+| **ProDOS 1.1.1 from HDD** (`PRODOS_111_1.HDV`, `PR#7`) | **boots fully to the USER'S DISK menu** |
+| **ProDOS 2.4 as raw `.nib`** (`prodostest1.nib`) | **crash — so not the HPS nibblizer** |
+| DOS 3.3 floppy | boots fine |
+
+So: ProDOS itself is fine, the HDD block path is fine, `dsk2nib_lib.cpp` is fine,
+and the 65C02 is fine (the full opcode table was audited — every 65C02 opcode is
+implemented; `$9E STZ abs,X` is present at `R65Cx2.vhd:470`, merely mislabelled
+`9C` in its comment). The fault is in the core's Disk II read path.
+
+It also fails *late*: the ProDOS kernel is many successful sectors' worth of
+reading, and the banner proves it ran. The monitor's address pointer sat at
+`$2C00` — the region a `.SYSTEM` file loads into before ProDOS jumps to it — so
+the likely story is that the `.SYSTEM` load is corrupt and the jump lands in
+cleared memory.
+
+**Unproven hypothesis worth checking first.** Nothing stalls floppy *reads* while
+the track buffer refills:
+
+- `Apple-II.sv:287` — `.CPU_WAIT(cpu_wait_hdd /*| cpu_wait_fdd*/)`. The floppy
+  wait is commented out and `cpu_wait_fdd` does not exist. The HDD path *does*
+  stall the CPU, which is consistent with the HDD path working.
+- `TRACK1_RAM_BUSY` is plumbed all the way to `drive_ii.vhd`, but it is used only
+  at `:163` — `TRACK_WE <= not TRACK_BUSY` — which gates **writes**. A read during
+  a refill is served from a buffer that is being overwritten.
+
+Why DOS 3.3 would survive that and ProDOS not is the part still to explain; both
+retry on a bad checksum, so this may not be the whole story. Also unexplained:
+ProDOS reports MACHID `$B2` — Apple //e, 80-column present, but **64K rather than
+128K**, so aux-memory detection is not being satisfied either.
+
+Fixing this unblocks mb-audit, which ships as a ProDOS disk and is the proper
+validator for item 2.
 
 ---
 
