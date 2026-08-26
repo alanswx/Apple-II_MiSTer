@@ -99,6 +99,7 @@ parameter CONF_STR = {
 	"P3OUV,Slot 5,Mouse,Mocking board,256K Saturn,Empty;",
 	"P3O6,Analog X/Y,Normal,Swapped;",
 	"P3OHI,Paddle as analog,No,X,Y;",
+	"P3o1,No-Slot Clock,On,Off;",
 	"P3-;",	
 	"-;",
 	"R0,Cold Reset;",
@@ -368,6 +369,7 @@ apple2_top apple2_top
 	.UART_DTR(UART_DTR),
 	.UART_DSR(UART_DSR),
 	.RTC(RTC),
+	.NSC_ENABLE(~status[33]),
 	
 	.mouse_x({ps2_mouse[4],ps2_mouse[15:8]}),
 	.mouse_y({ps2_mouse[5],ps2_mouse[23:16]}),

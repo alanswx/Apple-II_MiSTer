@@ -22,7 +22,7 @@ NOTE: only .nib will persist saves to disk
 * selection of color palette (NTSC //e, Apple IIgs, AppleWin, Custom)
 * Load custom palette from file 
 * Language card in slot 0
-* ProdDOS compatible clock card in slot 1
+* No-Slot Clock (DS1216E), fed by the MiSTer RTC - uses no slot, works with the stock NSC drivers
 * Super Serial Card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
@@ -41,13 +41,22 @@ NOTE: only .nib will persist saves to disk
 ## Apple II slot assignments
 
 * Slot 0 - language card
-* Slot 1 - clock card (PRODOS compatible)
+* Slot 1 - empty
 * Slot 2 - Super Serial Card
 * Slot 3 - 80 col + 64K RAM expansion (//e)
 * Slot 4 - Mockingboard model A (six audio channels), mouse, or empty (OSD-selectable)
 * Slot 5 - Mouse, Mockingboard, Saturn 128kb RAM expansion (total of 256kb), or empty (OSD-selectable)
 * Slot 6 - Disk Drive controller
 * Slot 7 - Hard Disk Drive controller
+
+The No-Slot Clock is not in this table on purpose. Like the real DS1216E it hides
+underneath the peripheral ROM space and stays invisible until a driver sends it the
+64-bit unlock pattern, so it costs no slot. It can be turned off under Hardware in
+the OSD.
+
+Drivers that hardcode slot 3 (`$C300`/`$C304`) need `POKE 49163,0` first to switch
+`$C3xx` from the built-in 80-column firmware to the slot, otherwise the clock never
+sees the access.
 
 ## Disk format notes
 
@@ -102,9 +111,14 @@ or
 ## Instructions to rebuild roms
 
 Install the acme cross-assembler: https://sourceforge.net/projects/acme-crossass/
+
+The ProDOS hard disk driver is the one ROM still assembled from source. Its `!to`
+directive writes the binary, which is then converted to hex and pasted into the ROM
+table in `rtl/hdd_rom.vhd`:
+
 ```bash
-acme -o clock.bin clock.asm
-srec_cat clock.bin --binary -o clock2.hex --ascii_hex
+acme rtl/roms/hddrvr.a65
+srec_cat hddrvr.bin --binary -o hddrvr.hex --ascii_hex
 ```
 
 ### Pre-MiST ReadMe for historical purposes:

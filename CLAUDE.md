@@ -115,14 +115,22 @@ Consequences:
 completely unused** (`Apple-II.sv:29-30` ties them off) — that is the headroom for
 any future memory expansion.
 
-### Resource budget (measured, Quartus 17.0.2)
+### Resource budget (measured, Quartus 17.0.2, post No-Slot Clock)
 
 ```
-ALMs           18,757 / 41,910   (45%)
-Block memory    3,065,444 / 5,662,720 bits  (54%)
+ALMs           18,912 / 41,910   (45%)
+Block memory    3,063,396 / 5,662,720 bits  (54%)
 RAM Blocks        399 / 553      (72%)
+DSP Blocks         43 / 112      (38%)
 PLLs                3 / 6        (50%)
 ```
+
+Timing is met with everything positive: worst-case setup slack 0.380 ns (in the HDMI
+PLL domain, framework side; `clk_sys` itself has 5.523 ns), worst-case hold 0.250 ns,
+TNS 0.000 on every domain.
+
+Swapping the slot-1 clock card for `no_slot_clock.v` cost 155 ALMs and gave back
+2,048 memory bits — the card's 256-byte ROM. RAM blocks did not move.
 
 **Blocks bind before bits** (72% vs 54%) because the scaler's wide/shallow RAMs waste
 M10K depth. Only ~154 blocks are free; one 64K RAM bank costs 64. Plan accordingly.
@@ -134,7 +142,7 @@ Fixed unless noted:
 | Slot | Card | Source |
 |------|------|--------|
 | 0 | Language card | `rtl/apple2.vhd` |
-| 1 | Clock card (ProDOS-compatible, custom ROM) | `rtl/clock_card.v`, `rtl/roms/clock.a65` |
+| 1 | *(empty)* | — |
 | 2 | Super Serial Card | `rtl/ssc/` |
 | 3 | 80-col + 64K aux (//e) | `rtl/apple2.vhd` |
 | 4 | Mockingboard **or** mouse **or** empty | OSD-selected |
@@ -143,6 +151,18 @@ Fixed unless noted:
 | 7 | HDD (ProDOS block device) | `rtl/hdd.vhd`, `hdd_rom.vhd` |
 
 Slot muxing is by `IO_SELECT(n)` / `DEVICE_SELECT(n)` in `rtl/apple2_top.vhd:323-330`.
+
+`rtl/no_slot_clock.v` (DS1216E) is deliberately **not** in that table. It takes no
+slot and no address space: it snoops every peripheral ROM page and the `$C800`
+window (`NSC_CS` in `apple2_top.vhd`) and stays silent until a driver shifts in the
+64-bit `5CA33AC55CA33AC5` unlock pattern on A0. Time comes from the HPS `RTC` port,
+with an on-chip BCD ticker advancing it between HPS updates. OSD bit `o1` disables
+it. It replaced the old slot-1 clock card, which needed a slot and its own ROM.
+`rtl/tb_no_slot_clock.v` is its unit test — the one iverilog testbench in the tree:
+
+```bash
+iverilog -g2005 -o /tmp/tb_nsc rtl/tb_no_slot_clock.v rtl/no_slot_clock.v && /tmp/tb_nsc
+```
 
 ### Video
 
@@ -172,8 +192,28 @@ Things that have bitten us. Check these before debugging something weird.
   `apple2_top.vhd` had `DISK_ACT <= not (...)`, which lit the LED when the disk was
   *idle*. Fixed here in `c65cfe0`.
 - **OSD status bits are nearly exhausted.** `O0`–`OV` (bits 0–31) are fully used and
-  bit 32 (`o0`) is taken by NTSC vertical blend. New options must use `o1` and up.
-- **Audio mixing can overflow.** `apple2_top.vhd:607-608` sums two Mockingboards and
+  bit 32 (`o0`) is taken by NTSC vertical blend and bit 33 (`o1`) by the No-Slot
+  Clock enable. New options must use `o2` and up.
+- **The CPU holds its address across internal cycles.** `R65Cx2.vhd`'s `calcAddr`
+  ends with `when others => null` (`:1494`), so `myAddr` keeps its value on any
+  cycle that does not compute a new address. One logical CPU access therefore
+  leaves a slot's `IO_SELECT`/`IO_STROBE` asserted across **several**
+  `PHASE_ZERO_R` pulses — measured at 5 for Applesoft's `LDA (zp),Y`. The 65C02
+  is the default (`cpu_type = ~status[5]`, `status` defaults to 0).
+  Stateless cards (ROM reads) don't care. **Any card that changes state per
+  access must edge-qualify it** — take one event per contiguous run of chip
+  select, or it will fire several times for a single access. This is what broke
+  `no_slot_clock.v`: every pattern bit got shifted in five times and the 64-bit
+  unlock could never align. Its testbench now models the hold explicitly.
+- **A card's `OE` must be a level, not a `cycle_en` pulse.** `PD` in
+  `apple2_top.vhd:319-326` is a combinational mux, and the CPU does not latch it
+  until a clock *after* PHI0 falls (`CPU_EN`, `apple2.vhd:502`). `PHASE_ZERO_R`
+  fires at the other end of the cycle — 14 clocks earlier — so an `OE` gated on it
+  is long gone by the time the CPU reads. Latch the byte at `PHASE_ZERO_R` and hold
+  both it and `OE` for the whole cycle. This bit `no_slot_clock.v` during
+  development; its testbench now models a full 14-clock cycle and samples late so
+  the mistake cannot come back.
+- **Audio mixing can overflow.** `apple2_top.vhd:622-623` sums two Mockingboards and
   the speaker as three `unsigned(9 downto 0)` values. Peak is 765+765+128 = 1658,
   which does not fit in 10 bits and **wraps**. Widen before adding any audio source.
 - **The speaker is not band-limited.** `$C030` toggles a flip-flop

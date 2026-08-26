@@ -10,29 +10,58 @@ file is named so the comparison can be re-checked.
 
 **Licensing:** Appletini's repo root is GPL-3, but its `README.md` says "No
 repository-wide license is granted by this README" and most RTL files have no
-header. Get explicit permission from the author before importing anything.
-`via6522.v` (Skibo) and `YM2149.sv` are separately BSD and are safe.
+header. **The author has since given permission to use the code** (2026-08-26),
+so items below that port from Appletini are cleared. Attribute in the file
+header, as `rtl/no_slot_clock.v` does. `via6522.v` (Skibo) and `YM2149.sv` are
+separately BSD and were always safe.
 
 ---
 
 ## Phase 0 — quick wins
 
 ### 1. No-Slot Clock, replacing the current clock card
-**Status:** ready · **Effort:** ~½ day
+**Status:** done in the working tree, **not yet tested on hardware**
 
-Port `appletini-one/hdl/apple/no_slot_clock.sv` (171 lines, no vendor primitives).
-Real DS1216E: the 64-bit `5CA33AC55CA33AC5` unlock pattern (`:26`), A2 selects
-read/write, A0 shifts (`:52-56`), 64 reads return the time LSB-first (`:113-125`).
+`rtl/no_slot_clock.v`, a DS1216E: the 64-bit `5CA33AC55CA33AC5` unlock pattern, A2
+selects read/write, A0 shifts, 64 reads return the time LSB-first, all BCD.
 
-It hides under any slot's ROM page and the `$C800` window (`:42-58`) rather than
-claiming addresses, so it needs **no slot** and works with every stock NSC driver
+It hides under every slot's ROM page and the `$C800` window rather than claiming
+addresses, so it needs **no slot** and works with the stock NSC drivers
 (NS.CLOCK.SYSTEM, the ProDOS 8 driver, AppleWorks, Total Replay's clock check).
 
-- Feed from the HPS `RTC` input (`Apple-II.sv:163`).
-- Appletini relies on its ARM to re-write the time; we need an FPGA BCD ticker.
-  Lift the one already in `rtl/clock_card.v:176-250`.
-- Then delete `rtl/clock_card.v` + `rtl/roms/clock.a65` and free slot 1.
-- Update `README.md`'s slot table.
+- Fed from the HPS `RTC` input, with the BCD ticker lifted from the old
+  `clock_card.v` so time advances between HPS updates.
+- `NSC_CS` in `apple2_top.vhd` is the snoop; `PHASE_ZERO_R` is the cycle enable.
+- OSD bit `o1` under Hardware turns it off.
+- `rtl/clock_card.v`, `rtl/roms/clock.a65` and `rtl/roms/clock.hex` deleted; slot 1
+  is now empty. `README.md` and `CLAUDE.md` slot tables updated.
+- `rtl/tb_no_slot_clock.v` covers unlock, read-back, write, wrong pattern, ordinary
+  ROM reads, the free-running ticker, and the disable. Passes under iverilog.
+
+**Verified on hardware** (MiSTer, 2026-08-26). Reads the correct date and time,
+zero drift measured over 332 s, and the unmodified third-party `NSC` driver from
+Asimov's `NoSlotClock.dsk` displays a live ticking clock.
+
+Two bugs only hardware testing found, both now covered by the testbench:
+
+1. `data_en` was a one-clock pulse at `PHASE_ZERO_R`; `PD` is a combinational mux
+   and the CPU does not latch until a clock after PHI0 falls, so reads returned
+   the floating bus. It must be a level held for the whole access.
+2. The 65C02 holds its address bus during internal cycles (`R65Cx2.vhd:1494`), so
+   one CPU access asserted `cs` for ~5 `PHASE_ZERO_R` pulses and every pattern bit
+   was shifted in five times. Now one event per contiguous run of `cs`.
+
+Also: the `$C800` window is no longer snooped. Raw `IO_STROBE` picked up a constant
+stream of firmware reads at `$CFA0`/`$CFA1` that derailed the matcher. Appletini
+gates that window on the owning slot; we have no equivalent, so slot ROM pages only.
+
+**Known limitation.** Drivers that hardcode `$C300` (the `NSC` binary above uses
+`WRTNSC EQU $C300` / `READNSC EQU $C304`) need `POKE 49163,0` (SETSLOTC3ROM) first,
+because `C3ROM` resets to 0 and `$C3xx` then goes to the //e's internal 80-column
+ROM, where `IO_SELECT(3)` never asserts. A real DS1216E sits physically under the
+ROM socket and snoops the address lines whoever responds. Emulating that faithfully
+means giving `CLOCK_OE` priority over `rom_out` in `apple2.vhd`'s `D_IN` mux -
+a change to the core data path, deliberately not made.
 
 ### 2. Replace the 6522 VIA
 **Status:** ready · **Effort:** ~1 day

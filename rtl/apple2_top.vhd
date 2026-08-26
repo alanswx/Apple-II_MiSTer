@@ -123,6 +123,7 @@ port (
 	UART_DTR       :out  std_logic;
 	UART_DSR       :in  std_logic;
 	RTC            :in  std_logic_vector(64 downto 0);
+	NSC_ENABLE     :in  std_logic;
 	
 	
 	mouse_strobe : in std_logic;
@@ -167,21 +168,20 @@ architecture arch of apple2_top is
 
   end component;
   
-  component clock_card is
+  component no_slot_clock is
+    generic (
+        CLK_FREQ        : integer := 14318181);
     port (
-        CLK_14M         : in std_logic;
-        CLK_2M          : in std_logic;
-        PH_2            : in std_logic;
-        IO_SELECT_N     : in std_logic;
-        DEVICE_SELECT_N : in std_logic;
-        IO_STROBE_N     : in std_logic;
-        ADDRESS         : std_logic_vector(15 downto 0);
-        RW_N            : in std_logic;
-        RESET           : in std_logic;
-		  OE              : out std_logic;
-        DATA_IN         : in std_logic_vector(7 downto 0);
-        DATA_OUT        : out std_logic_vector(7 downto 0);
-        RTC             : in std_logic_vector(64 downto 0));
+        clk             : in std_logic;
+        reset           : in std_logic;
+        enable          : in std_logic;
+        cs              : in std_logic;
+        addr            : in std_logic_vector(15 downto 0);
+        rw              : in std_logic;
+        cycle_en        : in std_logic;
+        RTC             : in std_logic_vector(64 downto 0);
+        data_en         : out std_logic;
+        data_out        : out std_logic_vector(7 downto 0));
   end component;
 
 
@@ -203,6 +203,7 @@ architecture arch of apple2_top is
 
   signal CLOCK_DO   : unsigned(7 downto 0);
   signal CLOCK_OE   : std_logic;
+  signal NSC_CS     : std_logic;
 
   signal MOUSE_4_DO:  unsigned(7 downto 0);
   signal MOUSE_4_OE: std_logic;
@@ -583,22 +584,37 @@ begin
   );
 	
 	
-	clock : component clock_card
+  -- No-Slot Clock (DS1216E).
+  --
+  -- It hides underneath peripheral ROM space and stays invisible until it
+  -- sees its 64-bit unlock pattern, so it occupies no slot. Watching every
+  -- slot ROM page plus the $C800 window gives the stock drivers the best
+  -- chance of finding it wherever they probe.
+  --
+  -- The $C800 window is deliberately NOT snooped. Appletini's no_slot_clock.sv
+  -- only watches it when it belongs to a slot the clock is configured for
+  -- (its c8_select/slot_mask test); we have no equivalent here, and raw
+  -- IO_STROBE covers all of $C800-$CFFF. Measured on hardware, that picks up a
+  -- constant stream of firmware reads at $CFA0/$CFA1, every one of which shifts
+  -- a bit and derails the unlock. Slot ROM pages alone are clean.
+  NSC_CS <= IO_SELECT(1) or IO_SELECT(2) or IO_SELECT(3) or IO_SELECT(4) or
+            IO_SELECT(5) or IO_SELECT(6) or IO_SELECT(7);
+
+  clock : component no_slot_clock
+  generic map (
+    CLK_FREQ        => 14318181)
   port map (
-	  CLK_14M         => CLK_14M,
-	  CLK_2M          => CLK_2M,
-	  PH_2            => PHASE_ZERO,
-	  IO_SELECT_N     => not IO_SELECT(1),
-	  DEVICE_SELECT_N => not DEVICE_SELECT(1),
-	  IO_STROBE_N     => NOT IO_STROBE,
-	  ADDRESS         => std_logic_vector(ADDR),
-	  RW_N            => not cpu_we,
-	  RESET           => reset,
-	  DATA_IN         => std_logic_vector(D),
-	  unsigned(DATA_OUT) => CLOCK_DO,
-	  OE              => CLOCK_OE,
-	  RTC             => RTC
-	  );
+    clk             => CLK_14M,
+    reset           => reset,
+    enable          => NSC_ENABLE,
+    cs              => NSC_CS,
+    addr            => std_logic_vector(ADDR),
+    rw              => not cpu_we,
+    cycle_en        => PHASE_ZERO_R,
+    RTC             => RTC,
+    data_en         => CLOCK_OE,
+    unsigned(data_out) => CLOCK_DO
+  );
 
 
 
