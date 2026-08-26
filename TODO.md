@@ -109,7 +109,31 @@ Every harmonic within 0.1 dB. The timer rate needs no measurement: the old VIA
 decremented on `falling`, which *is* `PHASE_ZERO_R`, the same signal now feeding
 `slow_clock`.
 
-mb-audit would still be the better validator and remains blocked by item 4.
+**Confirmed by mb-audit v1.60**, which does *not* need item 4 fixed — its `.po`
+is already a raw ProDOS block image, so `cp mb-audit.po mb-audit.hdv` and boot it
+from slot 7, a path that works.
+
+| | pre-swap | Skibo VIA |
+|---|---|---|
+| slot 4 `$00`/`$80` | `?` `?` | `C0` `C0` |
+| 6522-A | FAIL 50:06:00 exp `E0` act `60` | **passes** |
+| 6522-B | FAIL 60:02:00 exp `E0` act `60` | **passes** |
+| reaches | stops at the 6522 | AY891x test 21:13:00 |
+
+The old VIA returned `'0' & irq_mask` for an IER read — bit 7 hardcoded low, where
+a real 6522 always returns it set. Verified directly from BASIC at `$C40E`:
+
+| | old VIA | Skibo VIA | correct |
+|---|---|---|---|
+| initial | 0 | 128 | 128 |
+| after `$C0` | 64 | 192 | 192 |
+| after `$40` | 0 | 128 | 128 |
+| after `$E0` | 96 | 224 | 224 |
+
+**New, separate finding:** mb-audit now fails in the AY-3-8913 at test 21:13:00,
+`Expected:00 Actual:42`, with AY register 0 reading `$42`. That is `YM2149.sv`,
+not the VIA — pre-existing, and only visible now that the 6522 no longer blocks
+the run. Worth its own item.
 
 Original notes follow.
 
