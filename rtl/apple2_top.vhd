@@ -168,6 +168,16 @@ architecture arch of apple2_top is
 
   end component;
   
+  component speaker_filter is
+    generic (
+        TAPS            : integer := 256);
+    port (
+        clk             : in std_logic;
+        reset           : in std_logic;
+        speaker         : in std_logic;
+        level           : out std_logic_vector(7 downto 0));
+  end component;
+
   component no_slot_clock is
     generic (
         CLK_FREQ        : integer := 14318181);
@@ -238,6 +248,8 @@ architecture arch of apple2_top is
 
   
   signal audio       : unsigned(9 downto 0);
+  signal speaker_raw : std_logic;
+  signal spk_level   : std_logic_vector(7 downto 0);
   signal audio_sum_l : unsigned(11 downto 0);
   signal audio_sum_r : unsigned(11 downto 0);
 
@@ -372,7 +384,7 @@ begin
 	 
     saturn_5_inslot=> saturn_5_inslot,
 	 
-    speaker        => audio(7)
+    speaker        => speaker_raw
     );
 
   tv : entity work.vga_controller port map (
@@ -620,8 +632,23 @@ begin
 
 
 
-  audio(6 downto 0) <= (others => '0');
-  audio(9 downto 8) <= (others => '0');
+  -- Band-limit the speaker before it reaches the 48 kHz sampler.
+  --
+  -- The raw $C030 flip-flop used to go straight into audio(7). Measured on
+  -- hardware over HDMI capture: an 11-cycle toggle loop produces a 46.4 kHz
+  -- square wave, and what came out was a 1614 Hz tone - exactly 48000-46386,
+  -- a frequency present nowhere in the source. The framework's default IIR
+  -- runs before the 48 kHz decimation but is far too gentle to stop it.
+  spk : component speaker_filter
+  generic map (
+    TAPS    => 256)
+  port map (
+    clk     => CLK_14M,
+    reset   => reset,
+    speaker => speaker_raw,
+    level   => spk_level);
+
+  audio <= resize(unsigned(spk_level), 10);
   -- Sum in 12 bits, then clamp instead of letting it wrap.
   --
   -- Each Mockingboard peaks at 765 - three 8-bit PSG channels summed in

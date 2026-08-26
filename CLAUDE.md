@@ -220,10 +220,14 @@ Things that have bitten us. Check these before debugging something weird.
   speaker, 893) sounds exactly as before. **Any new audio source eats the
   remaining headroom** - re-check the peak, and consider rescaling rather than
   piling more onto the clamp.
-- **The speaker is not band-limited.** `$C030` toggles a flip-flop
-  (`apple2.vhd:321-328`) that lands in `audio(7)` and is point-sampled at 48 kHz, so
-  transitions above 24 kHz alias. The framework already DC-blocks at ~15 Hz
-  (`sys/iir_filter.v:189`), so DC is *not* the problem — aliasing is.
+- **The speaker is box-averaged now, not point-sampled.** `$C030` toggles a
+  flip-flop (`apple2.vhd:321-328`); it used to go straight into `audio(7)` and get
+  sampled at 48 kHz, so anything driven fast aliased. Measured over HDMI capture:
+  an 11-cycle toggle loop (46.4 kHz square) produced a **1614 Hz** tone —
+  exactly `48000-46386`, present nowhere in the source. `rtl/speaker_filter.v` now
+  averages over 256 `clk_sys` cycles, which measured −14.2 dB on that alias and
+  −0.0 dB on a 1 kHz control. The framework's default IIR (`sys/sys_top.v:339-347`)
+  does run before the 48 kHz decimation but is far too gentle to stop this.
 - **`.po` and `.do` images are served raw.** `Main_MiSTer/user_io.cpp:2155` routes
   only `.dsk` to `SD_TYPE_A2` nibblization, though `CONF_STR` advertises
   `"S0,NIBDSKDO PO ;"`. `.nib` works only because raw passthrough happens to be the
@@ -236,10 +240,31 @@ Things that have bitten us. Check these before debugging something weird.
 
 ## Testing
 
-**There is no simulation harness in this repository.** Verification today is:
+Verification today is:
 
-1. `quartus_map` + `quartus_fit` — catches resource and inference regressions early.
-2. Full compile and run on hardware.
+1. **iverilog unit tests** for the Verilog modules — `rtl/tb_no_slot_clock.v` and
+   `rtl/tb_speaker_filter.v`. Both model *this core's* bus and clock, not an
+   idealised one; see the address-hold note above for why that distinction has
+   already cost three bugs.
+2. `quartus_map` + `quartus_fit` — catches resource and inference regressions early.
+3. Full compile and run on hardware.
+
+**The MiSTer can be driven entirely from here**, which makes hardware testing cheap:
+
+- `load_core` / `screenshot` over `/dev/MiSTer_cmd` (`Main_MiSTer/input.cpp:6236`).
+  Always check the screenshot filename advanced — a stale frame looks like a
+  working test and has fooled us before.
+- mrext's REST API on `:8182`: `POST /api/launch` with an absolute path mounts a
+  disk *and* loads the matching core; `POST /api/controls/keyboard-raw/{code}`
+  sends a keycode (press-and-release only, so no shifted characters).
+- A uinput virtual keyboard on the MiSTer covers what the raw API cannot. Note the
+  Apple II has a **single-character keyboard latch and no buffer**, so anything
+  typed while Applesoft tokenises a line is silently dropped — allow ~0.9 s after
+  every Enter, and MiSTer's inotify drops the first keystrokes after the device
+  appears.
+- **An HDMI capture dongle (MS2109, `hw:2,0`) gives 48 kHz stereo audio**, so audio
+  changes can be measured rather than guessed at: drive a known waveform from a
+  short ML loop, `arecord`, and compare spectra before and after.
 
 When adding anything timing-sensitive, prefer to prototype it in the **Apple IIgs
 core's Verilator harness** (`../Apple-IIgs_MiSTer/vsim/`), which has a real

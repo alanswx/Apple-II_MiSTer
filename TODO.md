@@ -99,14 +99,36 @@ that module is redundant. The real problems are different:
    rescaling so the gain - and so the loudness of the common one-board case, 893 -
    is unchanged; only the rare both-boards-flat-out peak clips. Not yet listened to
    on hardware.
-2. **The speaker is not band-limited.** `$C030` toggles a flip-flop
-   (`apple2.vhd:321-328`) that lands in `audio(7)` and is point-sampled at 48 kHz.
-   The latch changes on 1 MHz boundaries, so every transition above 24 kHz aliases
-   into the audible band — this is what makes Electric Duet, 4-voice music and
-   digitized speech sound gritty. Fix the way AppleWin does: accumulate speaker
-   state at 14 MHz and box-average down to each 48 kHz sample (~298 clocks).
+2. ~~**The speaker is not band-limited.**~~ **Done.** `rtl/speaker_filter.v`
+   box-averages the `$C030` flip-flop over 256 `clk_sys` cycles before it reaches
+   `audio`, the way AppleWin does. 256 rather than 298 so the output scaling is a
+   shift, not a multiplier.
+
+   Confirmed by measurement, not assumption. Over HDMI capture an 11-cycle toggle
+   loop (46.4 kHz square wave) produced a **1614 Hz** tone — exactly
+   `48000-46386`, a frequency present nowhere in the source. After the filter:
+
+   | | before | after |
+   |---|---|---|
+   | 1614 Hz alias | 138.0 | 26.9 (**−14.2 dB**) |
+   | 1 kHz control | 1643.8 | 1640.6 (−0.0 dB) |
+
+   The framework's own IIR (`sys/sys_top.v:339-347`) does sit before the 48 kHz
+   decimation, but is far too gentle to prevent this — worth knowing before
+   assuming `sys/` handles band-limiting for you.
+
+   **If more rejection is wanted:** lengthening the boxcar will not give it. A
+   rectangular window's first sidelobe is −13 dB at any length, and 46 kHz lands in
+   the sidelobes. Cascading two boxcars (a triangular window) roughly doubles the
+   rejection in dB; the cost is a second delay line 9 bits wide instead of 1, which
+   likely means an M10K, and blocks are the binding resource at 72%.
 3. **Bipolar mapping.** Map the speaker to ±A instead of 0/+A so it is centered at
-   the source and uses sane headroom.
+   the source and uses sane headroom. **Deliberately not done**, and arguably no
+   longer worth doing: the whole mix is unsigned (`AUDIO_S = 0`), so making just
+   the speaker bipolar means reworking the Mockingboard paths and the new clamp to
+   signed arithmetic. The two stated benefits are already covered — the framework
+   DC-blocks at ~15 Hz, and the headroom question was settled by the saturating
+   mix in item 1.
 
 ---
 
