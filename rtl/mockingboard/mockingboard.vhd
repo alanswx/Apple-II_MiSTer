@@ -99,8 +99,20 @@ begin
   OE <= not I_IOSEL_L;
 
   O_DATA <= o_data_l when I_ADDR(7) = '0' else o_data_r;
-  O_IRQ_L <= not lirq or not I_ENA_H;
-  O_NMI_L <= not rirq or not I_ENA_H;
+  -- Both 6522s drive IRQ; NMI is never asserted.
+  --
+  -- Real boards could be jumpered with the second VIA on NMI, but nothing should
+  -- take that option. Apple's own interrupt tech note warns that "the data and
+  -- programs on the disk may be destroyed if an NMI occurs while the Apple is
+  -- writing data to the disk" - DOS masks IRQ around disk I/O, and nothing can
+  -- mask NMI. mb-audit agrees in practice: it installs an NMI handler purely to
+  -- detect a VIA wired that way ("Don't use 6522 if it's connected to NMI") and
+  -- skips T6522_E, T6522_F and T6522_17 when it sees one.
+  --
+  -- AppleWin ("Mockingboard generates IRQ on both 6522s"), Appletini
+  -- (assert_nmi tied 0) and Clemens all route both VIAs to IRQ.
+  O_IRQ_L <= not (lirq or rirq) or not I_ENA_H;
+  O_NMI_L <= '1';
 
   PSG_EN <= PHASE_ZERO_F;
   VIA_CE_R <= PHASE_ZERO_F;

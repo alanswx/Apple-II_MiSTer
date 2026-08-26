@@ -83,9 +83,35 @@ carries Gideon Zweijtzer's "do not use without written permission" notice
 Wiring: `slow_clock` = 1 MHz tick, `strobe` = PHASE_ZERO edge, `ifr_*_ext` tied
 off, `timer_read_extra_clock` = 0.
 
-**Also settle:** Appletini routes VIA1 to **IRQ** (`mockingboard.sv:1067`); we
-route it to **NMI** (`mockingboard.vhd:96-97`). Decide which is right for the
-boards we claim to emulate.
+**Settled (2026-08-26): route both VIAs to IRQ.**
+
+First, the note this replaced was wrong about what we do. We route VIA1 (left,
+`$Cn00`) to **IRQ** already — the same as Appletini. The actual difference is
+VIA2 (right, `$Cn80`), which we send to **NMI** (`mockingboard.vhd:102-103`,
+`lirq`->`O_IRQ_L`, `rirq`->`O_NMI_L`).
+
+Every reference implementation routes both VIAs to IRQ and never asserts NMI:
+
+- **AppleWin** — "NB. Mockingboard generates IRQ on both 6522s", and NMI appears
+  in that file only to say the speech IRQs "must generate a 6502 IRQ (not NMI)".
+- **Appletini** — `assert_irq <= via0_irq | via1_irq | ssi0_direct_irq |
+  ssi1_direct_irq`, with `assert_nmi <= 1'b0` (`mockingboard.sv:1067-1070`).
+- **Clemens** — `mockingboard.c:881` returns `CLEM_CARD_IRQ` if either VIA is
+  active.
+
+Real boards *could* be jumpered with one VIA on NMI — mb-audit probes for exactly
+that. But it treats it as a degraded configuration: "Don't use 6522 if it's
+connected to NMI (as nested IRQ then NMI aren't supported by my ISR)", and skips
+**T6522_E, T6522_F and T6522_17** when it sees an NMI. So our current wiring
+actively costs us coverage on the very test suite item 2 is meant to satisfy.
+
+Apple's own tech note settles the hardware question: NMI is not recommended for
+peripheral cards, because "the data and programs on the disk may be destroyed if
+an NMI occurs while the Apple is writing data to the disk." DOS masks IRQ around
+disk I/O; nothing can mask NMI.
+
+So: `O_NMI_L` should be tied inactive and `rirq` OR'd into `O_IRQ_L`. This is a
+small change and independent of the VIA swap itself — worth doing either way.
 
 ### 3. Audio: fix the mixer, then band-limit the speaker
 **Status:** ready · **Effort:** 1–2 days
@@ -129,6 +155,27 @@ that module is redundant. The real problems are different:
    signed arithmetic. The two stated benefits are already covered — the framework
    DC-blocks at ~15 Hz, and the headroom question was settled by the saturating
    mix in item 1.
+
+### 4. ProDOS 2.4.x does not boot — blocks mb-audit
+**Status:** newly found, not diagnosed · **Effort:** unknown
+
+ProDOS 8 **2.4.1 and 2.4.3** both print their banner and then BRK into the
+monitor (`P=32`, B set, `X=$C3`). Reproduced on `ALECLOCK.dsk` and on
+`mb-audit-v1.60`, and **on the pre-existing `Apple-II_20260603.rbf` as well**, so
+it is not caused by any of the recent work. DOS 3.3 and ProDOS-based games boot
+fine, so it is specific to 2.4.x.
+
+`X=$C3` at the BRK hints at slot-3 scanning — 2.4.x probes hardware far more
+aggressively than 1.1.1 or 2.0.3.
+
+This matters beyond the disks above: **mb-audit ships as a ProDOS 2.4.x disk**,
+so until this is fixed the Mockingboard test suite cannot run on this core, and
+item 2's per-test claims (T6522_3/4, F/10/11, 15) cannot be verified on hardware.
+
+Note mb-audit is distributed as `.po`, which this core serves raw. Convert to DOS
+order first — the DOS/ProDOS interleave is self-inverse:
+`[0,14,13,12,11,10,9,8,7,6,5,4,3,2,1,15]`, applied per 16-sector track. A correct
+conversion puts the ProDOS volume directory at offset `0x0B00`.
 
 ---
 
