@@ -194,17 +194,27 @@ Things that have bitten us. Check these before debugging something weird.
 - **OSD status bits are nearly exhausted.** `O0`–`OV` (bits 0–31) are fully used and
   bit 32 (`o0`) is taken by NTSC vertical blend and bit 33 (`o1`) by the No-Slot
   Clock enable. New options must use `o2` and up.
-- **The CPU holds its address across internal cycles.** `R65Cx2.vhd`'s `calcAddr`
-  ends with `when others => null` (`:1494`), so `myAddr` keeps its value on any
-  cycle that does not compute a new address. One logical CPU access therefore
-  leaves a slot's `IO_SELECT`/`IO_STROBE` asserted across **several**
-  `PHASE_ZERO_R` pulses — measured at 5 for Applesoft's `LDA (zp),Y`. The 65C02
-  is the default (`cpu_type = ~status[5]`, `status` defaults to 0).
-  Stateless cards (ROM reads) don't care. **Any card that changes state per
-  access must edge-qualify it** — take one event per contiguous run of chip
-  select, or it will fire several times for a single access. This is what broke
-  `no_slot_clock.v`: every pattern bit got shifted in five times and the 64-bit
-  unlock could never align. Its testbench now models the hold explicitly.
+- **The CPU holds its address on some cycles, but far fewer than you might think.**
+  `R65Cx2.vhd`'s `calcAddr` ends with `when others => null` (`:1494`), so `myAddr`
+  keeps its value whenever `nextAddr` is `nextAddrHold`. Reading `calcNextAddr`
+  (`:1377-1432`) shows that is only: **RMW instructions** (`cycleRead`/`cycleRead2`
+  when `opcRmw`, plus `cycleRmw`), **`cyclePreWrite`**, and implied-mode `cycle2`
+  (where the address is PC anyway). `cycleRead`, `cycleRead2` and `cycleWrite`
+  otherwise go straight back to `nextAddrPc`, so an ordinary `LDA abs` or
+  `LDA (zp),Y` puts its target on the bus for exactly **one** cycle.
+
+  For RMW that hold is correct — a real 6502 does drive the same address for
+  read/modify/write, and a peripheral should see all of those cycles.
+
+  **Correction to an earlier claim in this file and in commit `d75126b`:** the "5
+  bus events per Applesoft `PEEK`" measured while debugging `no_slot_clock.v` was
+  *not* the address hold. It was firmware traffic at `$CFA0`/`$CFA1` that the
+  clock was snooping because `NSC_CS` included raw `IO_STROBE`. Narrowing that
+  window to slot ROM pages was the fix that mattered. The `cs_edge` qualifier in
+  `no_slot_clock.v` is defensive rather than load-bearing, and strictly it makes
+  the clock ignore the extra cycles of an RMW access that real hardware would
+  see — harmless for NSC drivers, but worth knowing. Do not copy that pattern
+  into a new peripheral without deciding whether it is actually wanted.
 - **A card's `OE` must be a level, not a `cycle_en` pulse.** `PD` in
   `apple2_top.vhd:319-326` is a combinational mux, and the CPU does not latch it
   until a clock *after* PHI0 falls (`CPU_EN`, `apple2.vhd:502`). `PHASE_ZERO_R`

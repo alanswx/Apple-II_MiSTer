@@ -47,9 +47,15 @@ Two bugs only hardware testing found, both now covered by the testbench:
 1. `data_en` was a one-clock pulse at `PHASE_ZERO_R`; `PD` is a combinational mux
    and the CPU does not latch until a clock after PHI0 falls, so reads returned
    the floating bus. It must be a level held for the whole access.
-2. The 65C02 holds its address bus during internal cycles (`R65Cx2.vhd:1494`), so
-   one CPU access asserted `cs` for ~5 `PHASE_ZERO_R` pulses and every pattern bit
-   was shifted in five times. Now one event per contiguous run of `cs`.
+2. `NSC_CS` snooped raw `IO_STROBE`, i.e. all of `$C800-$CFFF`, which picked up a
+   constant stream of firmware reads at `$CFA0`/`$CFA1`. Every one shifted a bit
+   and derailed the matcher. Now slot ROM pages only.
+
+   *(A `cs_edge` qualifier was added at the same time, believing the CPU held its
+   address for ~5 cycles per access. That was wrong — see the corrected note in
+   CLAUDE.md. `R65Cx2.vhd` only holds for RMW, `cyclePreWrite` and implied
+   `cycle2`. The window narrowing was the fix that mattered; `cs_edge` is
+   defensive.)*
 
 Also: the `$C800` window is no longer snooped. Raw `IO_STROBE` picked up a constant
 stream of firmware reads at `$CFA0`/`$CFA1` that derailed the matcher. Appletini

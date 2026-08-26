@@ -34,10 +34,12 @@ module tb_no_slot_clock;
 	// matter here, only that it is longer than the cycle_en pulse.
 	localparam integer CYCLE_CLKS = 14;
 
-	// Bus cycles the CPU keeps one address asserted. R65Cx2.vhd's calcAddr has
-	// `when others => null`, so the address bus holds during internal cycles;
-	// measured at 5 on hardware for Applesoft's LDA (zp),Y. The clock must
-	// still register exactly one protocol event per access.
+	// Bus cycles to keep one address asserted. R65Cx2.vhd holds the address for
+	// RMW instructions and cyclePreWrite (an ordinary read does not hold - see
+	// the note in no_slot_clock.v), so a held address is a real case even if it
+	// is rarer than first assumed. 5 is deliberately more than the hardware
+	// produces: the clock must register exactly one protocol event per access
+	// however long cs stays up.
 	localparam integer HOLD = 5;
 
 	integer errors = 0;

@@ -148,12 +148,21 @@ reg        write_time_strobe;
 // Access decode
 // ---------------------------------------------------------------------------
 
-// The CPU core holds its address bus during internal cycles - R65Cx2.vhd's
-// calcAddr ends with `when others => null` (:1494), so myAddr keeps its value
-// on any cycle that does not compute a new address. One logical CPU access
-// therefore leaves cs asserted across several consecutive cycle_en pulses.
-// Counting each as a protocol event shifts the same bit repeatedly and the
-// unlock can never align, so take one event per contiguous run of cs.
+// Take one protocol event per contiguous run of cs.
+//
+// This was added believing the CPU held its address across many cycles per
+// access. That turned out to be wrong: R65Cx2.vhd only holds (nextAddrHold) for
+// RMW instructions, cyclePreWrite and implied-mode cycle2 - an ordinary read
+// puts its target on the bus for exactly one cycle. The "5 events per PEEK"
+// that prompted this was firmware traffic at $CFA0/$CFA1, which the clock was
+// snooping because NSC_CS then included raw IO_STROBE; narrowing that window
+// was the real fix.
+//
+// Kept because it is cheap and harmless, and it guards against the pre-write
+// hold putting a store's target address on the bus twice. Note the trade: it
+// also makes the clock ignore the extra cycles of an RMW access that a real
+// DS1216E would see and shift. No NSC driver does RMW on the clock, so this
+// costs nothing in practice.
 reg  cs_prev;
 wire cs_edge = cs && !cs_prev;
 
