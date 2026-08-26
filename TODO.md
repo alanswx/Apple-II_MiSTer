@@ -95,9 +95,21 @@ Wiring notes, since the interface is not a drop-in:
 
 Fit: 19,266 ALMs (46%, +284), RAM blocks unchanged at 399, setup slack 0.420 ns.
 
-**Remaining:** hardware. A Skyfox baseline was captured with the old VIA for
-comparison (peak 16726, rms 2731, 81 Hz fundamental). The proper validator is
-mb-audit, which is blocked by item 4.
+**Verified on hardware** (2026-08-26) by driving the AY directly through the VIA
+from BASIC — DDRA/DDRB, latch-address, write-data, mixer, amplitude, tone period
+— to a fixed 996.6 Hz, and capturing over HDMI. Pre-swap and post-swap cores:
+
+| | pre-swap VIA | Skibo VIA |
+|---|---|---|
+| fundamental | 996.5 Hz | 996.5 Hz |
+| rms | 1017 | 1013 |
+| harmonics 3rd-15th | -9.4 -14.3 -16.6 -19.2 -20.7 -22.3 -24.1 | -9.4 -14.3 -16.6 -19.1 -20.7 -22.3 -24.1 |
+
+Every harmonic within 0.1 dB. The timer rate needs no measurement: the old VIA
+decremented on `falling`, which *is* `PHASE_ZERO_R`, the same signal now feeding
+`slow_clock`.
+
+mb-audit would still be the better validator and remains blocked by item 4.
 
 Original notes follow.
 

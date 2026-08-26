@@ -276,6 +276,18 @@ Verification today is:
   changes can be measured rather than guessed at: drive a known waveform from a
   short ML loop, `arecord`, and compare spectra before and after.
 
+  **Drive a deterministic signal — do not compare game music.** Comparing Skyfox
+  before/after failed three ways: aggregate stats (rms, peak, dominant partial,
+  beat period) matched while proving nothing; run-to-run captures on the *same*
+  core disagreed on their upper partials because the melody had moved on; and
+  cross-correlating two boots gave 0.077, because boot timing is not reproducible
+  enough to land on the same passage. What worked was a BASIC program driving the
+  AY through the VIA to a fixed tone — a 0.1 dB match across every harmonic. For
+  the Mockingboard in slot 4: `$C400` ORB, `$C401` ORA, `$C402` DDRB,
+  `$C403` DDRA; PB0=BC1, PB1=BDIR, PB2=/RESET; 7 = latch address, 6 = write,
+  4 = inactive; AY R0/R1 tone period, R7 mixer, R8 amplitude. Tone frequency is
+  `1020484 / (16 * period)`.
+
 When adding anything timing-sensitive, prefer to prototype it in the **Apple IIgs
 core's Verilator harness** (`../Apple-IIgs_MiSTer/vsim/`), which has a real
 `--woz`/`--floppy` path, screenshot capture, key injection, and a
