@@ -32,6 +32,10 @@ entity MOCKINGBOARD is
     O_NMI_L           : out std_logic;
     I_IOSEL_L         : in std_logic;
     I_RESET_L         : in std_logic;
+    -- Power-on reset, distinct from the Apple RESET line above. The 6522's
+    -- timer latches survive RESET but not power-on, which is what T1/T2 latch
+    -- persistence across an Apple RESET depends on.
+    I_POWER_RESET     : in std_logic;
     I_ENA_H           : in std_logic;     
     
     O_AUDIO_L         : out std_logic_vector(9 downto 0);
@@ -67,7 +71,48 @@ entity MOCKINGBOARD is
   signal rirq             : std_logic;
   
   signal PSG_EN   : std_logic;
-  signal VIA_CE_F, VIA_CE_R, PHASE_ZERO_D : std_logic;
+  signal via_sel_l, via_sel_r : std_logic;
+
+  -- Thomas Skibo's 6522 (BSD-3), by way of Appletini One. Replaces the previous
+  -- via6522.vhd, which carried a "do not use without written permission" notice
+  -- and lacked the timer bus-value snapshot, the IFR underflow boundary and the
+  -- reset/power_reset split that MB-Audit's 6522 tests check for.
+  component via6522 is
+    port (
+      data_out               : out std_logic_vector(7 downto 0);
+      data_in                : in  std_logic_vector(7 downto 0);
+      addr                   : in  std_logic_vector(3 downto 0);
+      strobe                 : in  std_logic;
+      we                     : in  std_logic;
+
+      irq                    : out std_logic;
+      ifr_set_ext            : in  std_logic_vector(6 downto 0);
+      ifr_clr_ext            : in  std_logic_vector(6 downto 0);
+
+      porta_out              : out std_logic_vector(7 downto 0);
+      porta_in               : in  std_logic_vector(7 downto 0);
+      portb_out              : out std_logic_vector(7 downto 0);
+      portb_in               : in  std_logic_vector(7 downto 0);
+      portb_bus              : out std_logic_vector(7 downto 0);
+      pcr_out                : out std_logic_vector(7 downto 0);
+      ddrb_out               : out std_logic_vector(7 downto 0);
+
+      ca1_in                 : in  std_logic;
+      ca2_out                : out std_logic;
+      ca2_in                 : in  std_logic;
+      cb1_out                : out std_logic;
+      cb1_in                 : in  std_logic;
+      cb2_out                : out std_logic;
+      cb2_in                 : in  std_logic;
+
+      slow_clock             : in  std_logic;
+      timer_read_extra_clock : in  std_logic;
+
+      clk                    : in  std_logic;
+      reset                  : in  std_logic;
+      power_reset            : in  std_logic
+      );
+  end component;
 
   component YM2149
   port (
@@ -115,44 +160,54 @@ begin
   O_NMI_L <= '1';
 
   PSG_EN <= PHASE_ZERO_F;
-  VIA_CE_R <= PHASE_ZERO_F;
-  VIA_CE_F <= PHASE_ZERO_R;
+
+  -- Which VIA a cycle is addressing. A7 picks left ($Cn00) or right ($Cn80).
+  via_sel_l <= (not I_IOSEL_L) and I_ENA_H and (not I_ADDR(7));
+  via_sel_r <= (not I_IOSEL_L) and I_ENA_H and I_ADDR(7);
+
+  -- slow_clock is the timer tick and must land EARLY in the Apple cycle;
+  -- strobe serves the register access and must land LATE. The VIA relies on
+  -- that ordering to hand a read the counter value from before this cycle's
+  -- decrement, which is what MB-Audit T6522_3 checks. PHASE_ZERO_R is the last
+  -- clock before PHI0 rises and PHASE_ZERO_F the last clock while it is high,
+  -- so they give exactly that early/late pair.
 
 
 -- Left Channel Combo
-  m6522_left : work.via6522
+  m6522_left : component via6522
     port map (
-      clock       => clk_14M,
-      rising      => VIA_CE_R,
-      falling     => VIA_CE_F,
-      reset       => not I_RESET_L,
+      clk                    => CLK_14M,
+      reset                  => not I_RESET_L,
+      power_reset            => I_POWER_RESET,
 
-      addr        => I_ADDR(3 downto 0),
-      wen         => not I_RW_L and not I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
-      ren         => I_RW_L and not I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
-      data_in     => I_DATA,
-      data_out    => o_data_l,
+      addr                   => I_ADDR(3 downto 0),
+      data_in                => I_DATA,
+      data_out               => o_data_l,
+      we                     => not I_RW_L,
+      strobe                 => via_sel_l and PHASE_ZERO_F,
 
-      phi2_ref    => open,
+      slow_clock             => PHASE_ZERO_R,
+      timer_read_extra_clock => '0',
 
-      port_a_o    => i_psg_l,
-      port_a_t    => open,
-      port_a_i    => o_psg_l,
+      irq                    => lirq,
+      ifr_set_ext            => (others => '0'),
+      ifr_clr_ext            => (others => '0'),
 
-      port_b_o    => o_pb_l,
-      port_b_t    => open,
-      port_b_i    => (others => '1'),
+      porta_out              => i_psg_l,
+      porta_in               => o_psg_l,
+      portb_out              => o_pb_l,
+      portb_in               => (others => '1'),
+      portb_bus              => open,
+      pcr_out                => open,
+      ddrb_out               => open,
 
-      ca1_i       => '1',
-      ca2_o       => open,
-      ca2_i       => '1',
-      cb1_o       => open,
-      cb1_i       => '1',
-      cb1_t       => open,
-      cb2_o       => open,
-      cb2_i       => '1',
-      cb2_t       => open,
-      irq         => lirq
+      ca1_in                 => '1',
+      ca2_out                => open,
+      ca2_in                 => '1',
+      cb1_out                => open,
+      cb1_in                 => '1',
+      cb2_out                => open,
+      cb2_in                 => '1'
       );
 
   psg_left: YM2149
@@ -183,39 +238,40 @@ begin
   O_AUDIO_L <= std_logic_vector(unsigned("00" & o_psg_al) + unsigned("00" & o_psg_bl) + unsigned("00" & o_psg_cl));
 
 -- Right Channel Combo
-  m6522_right : work.via6522
+  m6522_right : component via6522
     port map (
-      clock       => clk_14M,
-      rising      => VIA_CE_R,
-      falling     => VIA_CE_F,
-      reset       => not I_RESET_L,
+      clk                    => CLK_14M,
+      reset                  => not I_RESET_L,
+      power_reset            => I_POWER_RESET,
 
-      addr        => I_ADDR(3 downto 0),
-      wen         => not I_RW_L and I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
-      ren         => I_RW_L and I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
-      data_in     => I_DATA,
-      data_out    => o_data_r,
+      addr                   => I_ADDR(3 downto 0),
+      data_in                => I_DATA,
+      data_out               => o_data_r,
+      we                     => not I_RW_L,
+      strobe                 => via_sel_r and PHASE_ZERO_F,
 
-      phi2_ref    => open,
+      slow_clock             => PHASE_ZERO_R,
+      timer_read_extra_clock => '0',
 
-      port_a_o    => i_psg_r,
-      port_a_t    => open,
-      port_a_i    => o_psg_r,
+      irq                    => rirq,
+      ifr_set_ext            => (others => '0'),
+      ifr_clr_ext            => (others => '0'),
 
-      port_b_o    => o_pb_r,
-      port_b_t    => open,
-      port_b_i    => (others => '1'),
+      porta_out              => i_psg_r,
+      porta_in               => o_psg_r,
+      portb_out              => o_pb_r,
+      portb_in               => (others => '1'),
+      portb_bus              => open,
+      pcr_out                => open,
+      ddrb_out               => open,
 
-      ca1_i       => '1',
-      ca2_o       => open,
-      ca2_i       => '1',
-      cb1_o       => open,
-      cb1_i       => '1',
-      cb1_t       => open,
-      cb2_o       => open,
-      cb2_i       => '1',
-      cb2_t       => open,
-      irq         => rirq
+      ca1_in                 => '1',
+      ca2_out                => open,
+      ca2_in                 => '1',
+      cb1_out                => open,
+      cb1_in                 => '1',
+      cb2_out                => open,
+      cb2_in                 => '1'
       );
 
   psg_right: YM2149

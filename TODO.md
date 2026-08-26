@@ -70,7 +70,38 @@ means giving `CLOCK_OE` priority over `rom_out` in `apple2.vhd`'s `D_IN` mux -
 a change to the core data path, deliberately not made.
 
 ### 2. Replace the 6522 VIA
-**Status:** ready · **Effort:** ~1 day
+**Status:** done in the working tree, **not yet tested on hardware**
+
+`rtl/mockingboard/via6522.v` is Skibo's BSD-3 core via Appletini, with
+`tb_via6522_timing.sv` alongside it — the MB-Audit-derived checks (T6522_F IFR
+boundary, T6522_15 T1 flag-clear) pass under iverilog. The old
+`rtl/mockingboard/via6522.vhd` and its "do not use without written permission"
+notice are gone.
+
+Wiring notes, since the interface is not a drop-in:
+
+- `slow_clock` = `PHASE_ZERO_R` (early in the Apple cycle), `strobe` =
+  `sel and PHASE_ZERO_F` (late). The VIA depends on that ordering to hand a read
+  the counter value from before this cycle's decrement — T6522_3. The old VHDL
+  VIA did its register access on `PHASE_ZERO_R`, so **every Mockingboard register
+  access is re-timed by half an Apple cycle**. That is the main risk here.
+- `strobe` is deliberately *not* edge-qualified, matching the old
+  `wen/ren and falling`. RMW instructions legitimately drive the same address for
+  read/modify/write and the VIA should see all of those cycles.
+- New `I_POWER_RESET` port on MOCKINGBOARD, fed from `power_on_reset` in
+  `apple2_top.vhd`, so the T1/T2 latches survive an Apple RESET.
+- `ifr_set_ext` / `ifr_clr_ext` tied off (no speech chips),
+  `timer_read_extra_clock` = 0.
+
+Fit: 19,266 ALMs (46%, +284), RAM blocks unchanged at 399, setup slack 0.420 ns.
+
+**Remaining:** hardware. A Skyfox baseline was captured with the old VIA for
+comparison (peak 16726, rms 2731, 81 Hz fundamental). The proper validator is
+mb-audit, which is blocked by item 4.
+
+Original notes follow.
+
+**Effort:** ~1 day
 
 Swap `rtl/mockingboard/via6522.vhd` for `appletini-one/hdl/apple/via6522.v`
 (Thomas Skibo, **BSD-3**) plus its testbench `tb_via6522_timing.sv`. Each fix is

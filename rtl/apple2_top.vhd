@@ -491,6 +491,7 @@ begin
       PHASE_ZERO_R => PHASE_ZERO_R,
       PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
+      I_POWER_RESET => power_on_reset,
       I_ENA_H   => mb_4_inslot,
 
       I_ADDR    => std_logic_vector(ADDR)(7 downto 0),
@@ -512,6 +513,7 @@ begin
       PHASE_ZERO_R => PHASE_ZERO_R,
       PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
+      I_POWER_RESET => power_on_reset,
       I_ENA_H   => mb_5_inslot,
 
       I_ADDR    => std_logic_vector(ADDR)(7 downto 0),
