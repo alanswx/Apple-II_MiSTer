@@ -287,7 +287,43 @@ close it.
 ## Phase 1 — WOZ
 
 ### 4. Port the IIgs WOZ engine here
-**Status:** IIgs side done, port not started · **Effort:** 2–3 weeks · **Lands in:** here, plus `Main_MiSTer`
+**Status:** ported, simulated, synthesized; not yet run on hardware · **Effort:** hardware gauntlet left · **Lands in:** here, plus `Main_MiSTer`
+
+**Done (2026-09-02):** `rtl/disk_ii_woz.sv` replaces `disk_ii.vhd` +
+`drive_ii.vhd` + `floppy_track.sv`; `flux_drive.v`, `woz_floppy_controller.sv`
+and `woz_bram.sv` are the IIgs engine (one rename); `woz_cell525.sv` is the
+shared bit-cell lookup. `apple2_top.vhd` instantiates it as a component and
+routes the two SD slots out; `Apple-II.sv` lists WOZ. Quartus 17.0.2: fits
+(451/553 M10K, ~50 % ALMs), timing met. `Main_MiSTer` (72d839a) serves this
+core's floppy slots through the IIgs WOZ path: native `.woz` passed through,
+`.dsk/.do/.po/.nib/2MG` converted in memory.
+
+Verified in the Verilog //e core's Verilator harness (`Apple-II-Verilog_MiSTer`,
+same `disk_ii_woz.sv`, real T65 6502): DOS 3.3, First Math, Frogger, Wings of
+Fury, Bouncing Kamungas, Border Zone A, Hard Hat Mack and the rest of the WOZ
+test set boot except the images GSSquared `-p 3` also fails (IIgs-only disks,
+the 13-sector DOS 3.2 master, Stargate, a data-only side B, and the WOZ 3
+flux-track ProDOS User's Disk). `verilator/run_woztest_iie.sh` runs the set.
+
+Three things learned there that are //e-specific and are in the code comments:
+
+- Per-drive signals must be declared inside the generate scope. Verilator
+  evaluates element-wise assigned unpacked wire arrays as one multi-driven
+  variable, and the controllers saw `sd_ack` a cycle late and dropped byte 0
+  of every block.
+- The bit cell is physical: 200 ms / track bit count (`woz_cell525.sv`, a
+  sequential divider per track load). The IIgs's calibrated `timing*7/4`
+  makes a byte exactly `timing` CPU cycles, and the boot ROM's 28-cycle data
+  loop locks to a timing-28 disk (Border Zone) and loses a byte per sector;
+  the true 125 ns cell broke The Apple at Play; calibrated + 0.5 clock broke
+  the Baudville cross-track-sync disks (they time the revolution). The
+  per-track rule keeps every revolution at 200 ms and boots all of them.
+- The sequencer takes its read-mode cell boundary from the selected drive's
+  own bit timer instead of running a second fractional accumulator; with a
+  fractional cell two accumulators walk apart within a track (Print Shop
+  Companion stalled at a cell of 56.06). The local timer is write-mode only.
+
+**Left:** the hardware gauntlet below, then the open ProDOS flux-track case.
 
 The IIgs engine was fixed first, on `Apple-IIgs_MiSTer` branch `woz-fixes`
 (pushed to `alanswx`, 2026-09-02). Read `vsim/HANDOFF_woz.md` there before

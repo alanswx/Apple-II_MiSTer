@@ -327,31 +327,20 @@ module flux_drive (
 
     wire [9:0]  max_phase = IS_35_INCH ? MAX_PHASE_35 : MAX_PHASE_525;
     // ---- 5.25" bit cell from the WOZ INFO "optimal bit timing" byte ----------
-    // Scale RELATIVE to the calibrated BIT_CELL_525 rather than recomputing from
-    // absolute microseconds:
-    //
-    //     cell = BIT_CELL_525 * timing / 32  =  timing * 7 / 4
-    //
-    // BIT_CELL_525 (56) is deliberately NOT 4us at 14.318181MHz (that would be
-    // 57.2727). It is calibrated against ROTATION_CYCLES_14M so one 200ms
-    // revolution holds ~51k bits -- which is what Applesauce actually captures
-    // off real drives, since they run nearer 294 RPM than a nominal 300. The
-    // two constants are a matched pair; raising the cell alone makes the disk
-    // stream ~2% slow against its own data and breaks disks that work today.
-    // Scaling by the ratio keeps timing==32 bit-identical and moves only the
-    // non-standard disks (28/29/34 in the wild).
-    //
-    //   cell = timing*7/4 : 32 -> 56.00   28 -> 49.00   34 -> 59.50   29 -> 50.75
-    //   half = timing*7/8 : 32 -> 28.00   28 -> 24.50   34 -> 29.75   29 -> 25.375
-    //
-    // Clamped to 35: bit_timer is 6 bits and 36*7/4 = 63 overflows on the +1 carry.
-    wire [7:0]  eff_bit_timing = (OPTIMAL_BIT_TIMING == 8'd0) ? 8'd32 :
-                                 (OPTIMAL_BIT_TIMING > 8'd35) ? 8'd35 : OPTIMAL_BIT_TIMING;
-    wire [10:0] timing_x7      = {3'b000, eff_bit_timing} * 11'd7;   // max 245
-    wire [5:0]  cell525_base   = timing_x7[7:2];                     // timing*7/4
-    wire [9:0]  cell525_step   = {8'd0, timing_x7[1:0]} * 10'd250;   // .00/.25/.50/.75
-    wire [5:0]  half525_base   = timing_x7[8:3];                     // timing*7/8
-    wire [9:0]  half525_step   = {7'd0, timing_x7[2:0]} * 10'd125;   // eighths
+    // //e port: from the shared woz_cell525 lookup that the Disk II sequencer
+    // also uses (the IIgs calibrated cell plus half a clock; see woz_cell525.sv
+    // for why the //e needs the half clock).
+    wire [5:0]  cell525_base;
+    wire [9:0]  cell525_step;
+    wire [5:0]  half525_base;
+    wire [9:0]  half525_step;
+    woz_cell525 cell_lut (
+        .clk(CLK_14M),
+        .timing(OPTIMAL_BIT_TIMING),
+        .bit_count(TRACK_BIT_COUNT),
+        .cell_base(cell525_base), .cell_step(cell525_step),
+        .half_base(half525_base), .half_step(half525_step)
+    );
 
     wire [5:0]  bit_cell_base = IS_35_INCH ? BIT_CELL_35 : cell525_base;
 // Uncomment to trace the derived 5.25" bit cell as disks are mounted.
@@ -361,7 +350,7 @@ module flux_drive (
     always @(posedge CLK_14M) if (!IS_35_INCH && OPTIMAL_BIT_TIMING != dbg_last_timing) begin
         dbg_last_timing <= OPTIMAL_BIT_TIMING;
         $display("BITCELL525: OPTIMAL_BIT_TIMING=%0d eff=%0d cell=%0d.%03d half=%0d.%03d",
-                 OPTIMAL_BIT_TIMING, eff_bit_timing, cell525_base, cell525_step, half525_base, half525_step);
+                 OPTIMAL_BIT_TIMING, OPTIMAL_BIT_TIMING, cell525_base, cell525_step, half525_base, half525_step);
     end
 `endif
     wire [5:0]  bit_half_base = IS_35_INCH ? (BIT_CELL_35 >> 1) : half525_base;

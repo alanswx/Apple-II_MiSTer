@@ -159,6 +159,7 @@ module disk_ii_woz (
         wire        flux;
         wire        wp;
         wire [8:0]  qtrack;
+        wire [5:0]  bit_timer;
         wire [15:0] bram_addr;
         wire [7:0]  write_byte;
         wire        write_we;
@@ -237,7 +238,7 @@ module disk_ii_woz (
             .HEAD_QTRACK(qtrack),
             .EJECT_REQ(),
             .BIT_POSITION(),
-            .BIT_TIMER_OUT(),
+            .BIT_TIMER_OUT(bit_timer),
             .TRACK_BIT_COUNT(bit_count),
             .TRACK_LOADED(mounted),
             .TRACK_LOAD_COMPLETE(load_done),
@@ -309,16 +310,24 @@ module disk_ii_woz (
     wire       sel_flux   = drive2_select ? drive_g[1].flux   : drive_g[0].flux;
     wire       sel_wp     = drive2_select ? drive_g[1].wp     : drive_g[0].wp;
     wire [7:0] sel_timing = drive2_select ? drive_g[1].timing : drive_g[0].timing;
+    wire [5:0] sel_bit_timer = drive2_select ? drive_g[1].bit_timer : drive_g[0].bit_timer;
+    // Read-mode bit cell boundary, taken from the selected drive's own cell
+    // timer: it emits the flux pulse at mid-cell and advances at 1, so every
+    // pulse lands in the cell that ends here. The sequencer therefore has no
+    // cell accumulator of its own to drift against the drive's (at cells with
+    // a fractional part two free-running accumulators walk apart and the
+    // window slides off the pulses within a track). The local cell_timer below
+    // is used for write mode only, where the drive follows WRITE_STROBE.
+    wire       drv_cell_end = (sel_bit_timer == 6'd1);
 
     //=========================================================================
-    // Bit cell timer: 56 clocks at timing 32, scaled like flux_drive
-    // (cell = timing * 7 / 4 clocks, fractional part kept in thousandths).
+    // Bit cell timer from the same lookup flux_drive uses (56.5 clocks at
+    // timing 32). See woz_cell525.sv.
     //=========================================================================
-    wire [7:0]  eff_timing = (sel_timing == 8'd0) ? 8'd32 :
-                             (sel_timing > 8'd35) ? 8'd35 : sel_timing;
-    wire [10:0] timing_x7  = {3'b000, eff_timing} * 11'd7;
-    wire [5:0]  BIT_CELL   = timing_x7[7:2];
-    wire [9:0]  BIT_CELL_STEP = {8'd0, timing_x7[1:0]} * 10'd250;
+    wire [5:0]  BIT_CELL;
+    wire [9:0]  BIT_CELL_STEP;
+    wire [31:0] sel_bits = drive2_select ? drive_g[1].bit_count : drive_g[0].bit_count;
+    woz_cell525 cell_lut (.clk(CLK_14M), .timing(sel_timing), .bit_count(sel_bits), .cell_base(BIT_CELL), .cell_step(BIT_CELL_STEP), .half_base(), .half_step());
 
     reg [5:0] cell_timer;
     reg [9:0] cell_frac;
@@ -328,6 +337,15 @@ module disk_ii_woz (
     //=========================================================================
     reg [7:0] sr;            // the data register
     reg       seq_armed;     // QA hold: a pulse has been seen
+    // Bus-visible stall after the restart. The IWM spec puts the sync-mode
+    // hold at "2 bit times plus four CLK periods"; the two bit times are the
+    // hold/arm cells above, the four 7 MHz CLKs (8 clocks here) keep the old
+    // byte on the bus a little past the restart. Without them a timing-28
+    // disk (49-clock cells) holds a byte for exactly 98 clocks, the length of
+    // the ROM's LDA/BPL poll loop, and a phase-locked drive can miss every
+    // byte (Border Zone).
+    reg [7:0] sr_stall;      // byte shown while stall_cnt != 0
+    reg [3:0] stall_cnt;
     reg       flux_seen;
     reg       prev_flux;
     wire      flux_edge = sel_flux && !prev_flux;
@@ -339,9 +357,12 @@ module disk_ii_woz (
         prev_flux    <= sel_flux;
         write_strobe <= 1'b0;
 
+        if (stall_cnt != 4'd0) stall_cnt <= stall_cnt - 4'd1;
+
         if (RESET) begin
             sr         <= 8'h00;
             seq_armed  <= 1'b0;
+            stall_cnt  <= 4'd0;
             flux_seen  <= 1'b0;
             cell_timer <= 6'd56;
             cell_frac  <= 10'd0;
@@ -361,20 +382,17 @@ module disk_ii_woz (
                 // within a bit cell the register is all-WP. Pulses discarded.
                 sr        <= {8{sel_wp}};
                 seq_armed <= 1'b0;
-                if (cell_timer == 6'd1) begin
-                    flux_seen <= 1'b0;
+                if (drv_cell_end) flux_seen <= 1'b0;
+            end else if (q7 ? (cell_timer == 6'd1) : drv_cell_end) begin
+                // Bit cell boundary (write: local timer; read: the drive's).
+                // A pulse landing on this very clock counts (flux_seen is
+                // cleared textually after the set above).
+                flux_seen <= 1'b0;
+                if (q7) begin
                     frac_tmp = cell_frac + BIT_CELL_STEP;
                     if (frac_tmp >= 10'd1000) begin cell_timer <= BIT_CELL + 6'd1; cell_frac <= frac_tmp - 10'd1000; end
                     else                      begin cell_timer <= BIT_CELL;         cell_frac <= frac_tmp; end
-                end else
-                    cell_timer <= cell_timer - 6'd1;
-            end else if (cell_timer == 6'd1) begin
-                // Bit cell boundary. A pulse landing on this very clock counts
-                // (flux_seen is cleared textually after the set above).
-                flux_seen <= 1'b0;
-                frac_tmp = cell_frac + BIT_CELL_STEP;
-                if (frac_tmp >= 10'd1000) begin cell_timer <= BIT_CELL + 6'd1; cell_frac <= frac_tmp - 10'd1000; end
-                else                      begin cell_timer <= BIT_CELL;         cell_frac <= frac_tmp; end
+                end
 
                 if (q7) begin
                     // Write: emit QA, shift a zero in.
@@ -390,15 +408,18 @@ module disk_ii_woz (
                     else begin
                         seq_armed <= 1'b0;
                         sr <= {6'b000000, 1'b1, (flux_seen || flux_edge)};
+                        sr_stall  <= sr;
+                        stall_cnt <= 4'd8;
                     end
                 end else begin
                     sr        <= {sr[6:0], (flux_seen || flux_edge)};
                     seq_armed <= 1'b0;
                 end
-            end else
+            end else if (q7)
                 cell_timer <= cell_timer - 6'd1;
         end
     end
+
 
 
     //=========================================================================
@@ -410,6 +431,7 @@ module disk_ii_woz (
     // The register is visible in every mode: in read mode it is the byte being
     // assembled or held; after a sense access bit 7 carries write protect; in
     // write mode it is the byte being shifted out.
-    assign D_OUT = IO_SELECT ? rom_dout : sr;
+    wire [7:0] data_reg_vis = (stall_cnt != 4'd0) ? sr_stall : sr;
+    assign D_OUT = IO_SELECT ? rom_dout : data_reg_vis;
 
 endmodule

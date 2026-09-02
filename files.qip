@@ -30,6 +30,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/disk_ii_woz.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/flux_drive.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/woz_floppy_controller.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/woz_bram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/woz_cell525.sv
 set_global_assignment -name VHDL_FILE rtl/keyboard.vhd
 set_global_assignment -name VHDL_FILE rtl/timing_generator.vhd
 set_global_assignment -name VHDL_FILE rtl/video_generator.vhd
