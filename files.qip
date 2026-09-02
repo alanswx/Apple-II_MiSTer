@@ -24,11 +24,12 @@ set_global_assignment -name VERILOG_FILE rtl/no_slot_clock.v
 set_global_assignment -name VERILOG_FILE rtl/speaker_filter.v
 set_global_assignment -name VERILOG_FILE rtl/rom.v
 set_global_assignment -name VHDL_FILE rtl/spram.vhd
-set_global_assignment -name VHDL_FILE rtl/disk_ii.vhd
-set_global_assignment -name VHDL_FILE rtl/drive_ii.vhd
-set_global_assignment -name VHDL_FILE rtl/disk_ii_rom.vhd
 set_global_assignment -name VHDL_FILE rtl/dpram.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/floppy_track.sv
+set_global_assignment -name VERILOG_FILE rtl/disk_ii_rom.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/disk_ii_woz.sv
+set_global_assignment -name VERILOG_FILE rtl/flux_drive.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/woz_floppy_controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/woz_bram.sv
 set_global_assignment -name VHDL_FILE rtl/keyboard.vhd
 set_global_assignment -name VHDL_FILE rtl/timing_generator.vhd
 set_global_assignment -name VHDL_FILE rtl/video_generator.vhd

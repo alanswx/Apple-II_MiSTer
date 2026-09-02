@@ -74,21 +74,26 @@ port (
 	joy_an         : in  std_logic_vector(15 downto 0);
 
 	
-	-- disk control
-	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
-	TRACK1_ADDR    : out unsigned(12 downto 0);
-	TRACK1_DI      : out unsigned( 7 downto 0);
-	TRACK1_DO      : in  unsigned( 7 downto 0);
-	TRACK1_WE      : out std_logic;
-	TRACK1_BUSY    : in  std_logic;
-	-- Track buffer interface disk 2
-	TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
-	TRACK2_ADDR    : out unsigned(12 downto 0);
-	TRACK2_DI      : out unsigned( 7 downto 0);
-	TRACK2_DO      : in  unsigned( 7 downto 0);
-	TRACK2_WE      : out std_logic;
-	TRACK2_BUSY    : in  std_logic;
-	 
+	-- Disk II (WOZ engine, rtl/disk_ii_woz.sv): SD block interface per drive
+	FD_RESET        : in  std_logic;                     -- cold/OSD reset for the drives
+	FD_SD_LBA0      : out std_logic_vector(31 downto 0);
+	FD_SD_RD0       : out std_logic;
+	FD_SD_WR0       : out std_logic;
+	FD_SD_ACK0      : in  std_logic;
+	FD_SD_BUFF_DIN0 : out std_logic_vector(7 downto 0);
+	FD_SD_LBA1      : out std_logic_vector(31 downto 0);
+	FD_SD_RD1       : out std_logic;
+	FD_SD_WR1       : out std_logic;
+	FD_SD_ACK1      : in  std_logic;
+	FD_SD_BUFF_DIN1 : out std_logic_vector(7 downto 0);
+	FD_SD_BUFF_ADDR : in  std_logic_vector(8 downto 0);
+	FD_SD_BUFF_DOUT : in  std_logic_vector(7 downto 0);
+	FD_SD_BUFF_WR   : in  std_logic;
+	FD_IMG_MOUNTED0 : in  std_logic;
+	FD_IMG_MOUNTED1 : in  std_logic;
+	FD_IMG_READONLY : in  std_logic;
+	FD_IMG_SIZE     : in  std_logic_vector(63 downto 0);
+
 	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
 	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
 	
@@ -97,10 +102,6 @@ port (
 
 	DISK_ACT       : out std_logic;
 
-	DISK_READY     : in  std_logic_vector(1 downto 0);
-
-
-	 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
 	HDD_READ       : out std_logic;
@@ -142,6 +143,42 @@ port (
 end apple2_top;
 
 architecture arch of apple2_top is
+  component disk_ii_woz is
+    port (
+      CLK_14M       : in  std_logic;
+      RESET         : in  std_logic;
+      DD_RESET      : in  std_logic;
+      PHASE_ZERO    : in  std_logic;
+      IO_SELECT     : in  std_logic;
+      DEVICE_SELECT : in  std_logic;
+      WE            : in  std_logic;
+      A             : in  std_logic_vector(15 downto 0);
+      D_IN          : in  std_logic_vector(7 downto 0);
+      D_OUT         : out std_logic_vector(7 downto 0);
+      D1_ACTIVE     : out std_logic;
+      D2_ACTIVE     : out std_logic;
+      D1_WP         : in  std_logic;
+      D2_WP         : in  std_logic;
+      SD_LBA0       : out std_logic_vector(31 downto 0);
+      SD_RD0        : out std_logic;
+      SD_WR0        : out std_logic;
+      SD_ACK0       : in  std_logic;
+      SD_BUFF_DIN0  : out std_logic_vector(7 downto 0);
+      SD_LBA1       : out std_logic_vector(31 downto 0);
+      SD_RD1        : out std_logic;
+      SD_WR1        : out std_logic;
+      SD_ACK1       : in  std_logic;
+      SD_BUFF_DIN1  : out std_logic_vector(7 downto 0);
+      SD_BUFF_ADDR  : in  std_logic_vector(8 downto 0);
+      SD_BUFF_DOUT  : in  std_logic_vector(7 downto 0);
+      SD_BUFF_WR    : in  std_logic;
+      IMG_MOUNTED0  : in  std_logic;
+      IMG_MOUNTED1  : in  std_logic;
+      IMG_READONLY  : in  std_logic;
+      IMG_SIZE      : in  std_logic_vector(63 downto 0)
+    );
+  end component;
+
   component superserial is
     port (
 	CLK_14M  	: in std_logic;
@@ -202,6 +239,7 @@ architecture arch of apple2_top is
   signal ADDR : unsigned(15 downto 0);
   signal D, PD: unsigned(7 downto 0);
   signal DISK_DO, HDD_DO : unsigned(7 downto 0);
+  signal disk_do_slv : std_logic_vector(7 downto 0);
   signal PSG_4_DO, PSG_5_DO : unsigned(7 downto 0);
   signal cpu_we : std_logic;
   signal psg_4_irq_n, psg_4_nmi_n , psg_4_oe: std_logic;
@@ -432,37 +470,40 @@ begin
 	 
   DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
 
-  disk : entity work.disk_ii port map (
+  disk_do_u : disk_ii_woz port map (
     CLK_14M        => CLK_14M,
-    CLK_2M         => CLK_2M,
+    RESET          => reset,
+    DD_RESET       => FD_RESET,
     PHASE_ZERO     => PHASE_ZERO,
     IO_SELECT      => IO_SELECT(6),
     DEVICE_SELECT  => DEVICE_SELECT(6),
-    RESET          => reset,
-    DISK_READY     => DISK_READY,  -- TODO
-    A              => ADDR,
-    D_IN           => D,
-    D_OUT          => DISK_DO,
-    D1_ACTIVE      => D1_ACTIVE, 
+    WE             => cpu_we,
+    A              => std_logic_vector(ADDR),
+    D_IN           => std_logic_vector(D),
+    D_OUT          => disk_do_slv,
+    D1_ACTIVE      => D1_ACTIVE,
     D2_ACTIVE      => D2_ACTIVE,
     D1_WP          => D1_WP,
-    D2_WP          => D2_WP, 
-	 
-    -- track buffer interface for disk 1  -- TODO
-    TRACK1         => TRACK1,
-    TRACK1_ADDR    => TRACK1_ADDR,
-    TRACK1_DO      => TRACK1_DO,
-    TRACK1_DI      => TRACK1_DI,
-    TRACK1_WE      => TRACK1_WE,
-    TRACK1_BUSY    => TRACK1_BUSY,
-    -- track buffer interface for disk 2  -- TODO
-    TRACK2         => TRACK2,
-    TRACK2_ADDR    => TRACK2_ADDR,
-    TRACK2_DO      => TRACK2_DO,
-    TRACK2_DI      => TRACK2_DI,
-    TRACK2_WE      => TRACK2_WE,
-    TRACK2_BUSY    => TRACK2_BUSY
+    D2_WP          => D2_WP,
+    SD_LBA0        => FD_SD_LBA0,
+    SD_RD0         => FD_SD_RD0,
+    SD_WR0         => FD_SD_WR0,
+    SD_ACK0        => FD_SD_ACK0,
+    SD_BUFF_DIN0   => FD_SD_BUFF_DIN0,
+    SD_LBA1        => FD_SD_LBA1,
+    SD_RD1         => FD_SD_RD1,
+    SD_WR1         => FD_SD_WR1,
+    SD_ACK1        => FD_SD_ACK1,
+    SD_BUFF_DIN1   => FD_SD_BUFF_DIN1,
+    SD_BUFF_ADDR   => FD_SD_BUFF_ADDR,
+    SD_BUFF_DOUT   => FD_SD_BUFF_DOUT,
+    SD_BUFF_WR     => FD_SD_BUFF_WR,
+    IMG_MOUNTED0   => FD_IMG_MOUNTED0,
+    IMG_MOUNTED1   => FD_IMG_MOUNTED1,
+    IMG_READONLY   => FD_IMG_READONLY,
+    IMG_SIZE       => FD_IMG_SIZE
     );
+  DISK_DO <= unsigned(disk_do_slv);
 	 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
