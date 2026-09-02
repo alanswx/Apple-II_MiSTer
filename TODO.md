@@ -277,59 +277,106 @@ ProDOS reports MACHID `$B2` — Apple //e, 80-column present, but **64K rather t
 128K**, so aux-memory detection is not being satisfied either.
 
 Fixing this unblocks mb-audit, which ships as a ProDOS disk and is the proper
-validator for item 2.
+validator for item 2. **Note:** the Phase 1 WOZ port replaces this whole read
+path (`drive_ii.vhd` + `floppy_track.sv`) and brings the IIgs engine's
+ready/stall gating with it, so decide whether to fix this here or let the port
+close it.
 
 ---
 
 ## Phase 1 — WOZ
 
-### 4. Fix the IIgs WOZ engine, then port it here
-**Status:** ready · **Effort:** 3–5 weeks · **Lands in:** `Apple-IIgs_MiSTer`, then here, plus `Main_MiSTer`
+### 4. Port the IIgs WOZ engine here
+**Status:** IIgs side done, port not started · **Effort:** 2–3 weeks · **Lands in:** here, plus `Main_MiSTer`
 
-The IIgs core already does bit-level and flux-level WOZ, and native `.woz` files
-are passed through verbatim (`Main_MiSTer/support/a2/iigs_disk.cpp:215`) with the
-FPGA parsing INFO/TMAP/TRKS/FLUX off SD blocks. The DSK→WOZ converter produces
-byte-aligned nibbles and cannot represent protection — that path is only a bridge
-for unprotected formats. **The passthrough is what makes this worth porting.**
+The IIgs engine was fixed first, on `Apple-IIgs_MiSTer` branch `woz-fixes`
+(pushed to `alanswx`, 2026-09-02). Read `vsim/HANDOFF_woz.md` there before
+touching anything; `vsim/WOZ_FINDINGS.md` has the evidence behind every claim.
+This section replaces the earlier six-defect plan, which turned out to be mostly
+wrong.
 
-**Do this first:** `Apple-IIgs_MiSTer/vsim/disks_525/` holds ~2,860 5.25" WOZ
-images (2,587 v2 · 266 v1 · 7 v3 · 145 with `WRIT` · 6 with `FLUX`) and
-`vsim/test_woz_batch.sh` is a parallel, resumable batch harness with an HTML
-report — **and it has never been run** (`vsim/woztest/` and `vsim/woz_report/`
-do not exist; `regression.sh:175-185` tests exactly one 3.5" image). Get a
-baseline before writing any code.
+**Where the IIgs engine stands.** Applesauce WOZ Test Images: 24 of 26 boot
+(the two left, Hard Hat Mack and Stargate, fail on GSSquared's IIgs profiles
+too). 202-disk corpus: clean against the previous head, +9. Three independent
+references now agree on the 5.25" read semantics: AppleWin, GSSquared /
+OpenEmulator, and Appletini's `disk2_card.sv` (AppleWin's model in HDL, on a
+real //e bus).
 
-Six defects, ordered by how many titles they affect:
+**What was actually wrong, in the order it mattered:**
 
-| Pri | Defect | Reach |
-|-----|--------|-------|
-| P1 | **TMAP alias forces a full reload on every quarter-track nudge.** `Apple-IIgs.sv:936-938` compares the raw quarter-track index rather than the TMAP-resolved TRK, so a wobble resolving to the same TRK still re-reads 13 identical blocks after a 3.5 ms settle (`woz_floppy_controller.sv:297,784,879`). The stale-data gate is disabled (`iwm_woz.v:762`), so the drive streams mixed old/new BRAM during the reload. *Fix: cache the TMAP value, skip the reload when unchanged; reset settle on TRK change, not half-track.* | 822 half-track + 106 quarter-track disks |
-| P2 | **Weak bits wrong in three ways.** Threshold is 7 zeros (`flux_drive.v:1684`) vs the reference model's 4. `head_window` is written (`:1667`) but **never read anywhere**, so there is no MC3470 one-cell delay and fake bits land at the *end* of a zero run instead of the middle. The LFSR free-runs every 14 MHz clock (`:1188`), so noise does not repeat per revolution. Reference: `../clemens_iigs/clem_drive.c:337-368`. | 2,673 disks on the path; 165 mis-read (Maniac Mansion, Ultima V, Wizardry V, Alcazar, Copy II Plus) |
-| P0 | **Bit cell is 3.911 µs, not 4.0.** `flux_drive.v:136` uses 56 clocks with a comment claiming "4µs @14M", but clk_sys is 14.318181 MHz — a **2.27% systematic error on every disk**. Correct value is 57.27. And `optimal_bit_timing` (INFO byte 39) is parsed at `woz_floppy_controller.sv:1409` and used **only in a `$display`**; the fractional accumulator that would fix it is gated `IS_35_INCH` (`:325-327`). | 22 disks fail outright (all late-Infocom side B at timing 28, all Newsroom revisions at 34); all 2,860 skewed |
-| P0 | **No data separator.** The 5.25" read path (`iwm_flux.v:259-270, 837-907`) is a free-running mod-56 counter that never re-phases on a flux edge — the code documents a resulting hardware wedge at `:849-851`. Real hardware restarts its window on every transition. **This caps everything else**: honouring bit timing fixes uniform-rate disks, but within-track variation still needs a resyncing window. Blocks E7/Sierra bitstream and bit-slip families. | structural |
-| P3 | **Write-back can corrupt the image.** `trk_start_block`/`trk_block_count` are set only on a successful load (`:1206-1207`), but the empty-TMAP path (`:960-1007`) leaves them pointing at the *previous* track while `bit_we` sets dirty unconditionally (`:619-623`) — writing an unmapped track overwrites the last-loaded track's blocks. Also never updates TRK bit-count, TMAP, or header CRC32, so saved images fail validation in Applesauce/CiderPress2/MAME. `WRIT` chunks are never parsed. | 145 WRIT disks + live corruption |
-| P4 | **Angular position not scaled across tracks.** Position is kept as a raw bit index, so when adjacent tracks differ in bit count the same index is a different angle. `head_window`/`zero_run_count` also reset at wrap, truncating weak regions that straddle the loop. INFO byte 3 (`synchronized`, set on 2,842 images) is never read. Breaks SpiraDisc and RapidLok track-arc timing. | 209 disks with >1000-bit spread |
+| Fix | What it was |
+|-----|-------------|
+| Sequencer semantics (`iwm_flux.v`, `sr525` path) | The data register was cleared when the CPU read it. Real hardware holds a completed byte until the next read pulse arrives, then restarts one cell later with that pulse as the leading 1; trailing zero bits extend the hold. Every "data separator" and "cell alignment" theory was this. Fixed First Math, DOS 3.2, ProDOS User's Disk, Border Zone A/B, all nine Newsroom revisions, and Halley Project. |
+| Q6H re-framing (`$C08D`) | Was absent entirely; now loads the register with the write-protect sense and discards pulses while Q6 is high. Commando, Wings of Fury. |
+| SmartPort mode bits gating 5.25" flux | IIgs-only. |
+| `optimal_bit_timing` honoured | INFO byte 39 drives the bit cell; standard disks unchanged. |
+| Weak-bit LFSR advances per fake bit; write-back guard for unmapped tracks | Both real; both small. |
+| 1 MHz persists through the IWM motor-off holdover (`clock_divider.v`) | **IIgs-only.** A //e is always 1 MHz. Does not port. |
 
-**Then port here.** Start from the fixed `woz_floppy_controller.sv` + `flux_drive.v`
-— same `sd_lba/sd_rd/sd_buff_*` interface as our `rtl/floppy_track.sv`, already
-parameterized `IS_35_INCH=0`, Quartus-proven. `iwm_flux.v:260-270, 833-907` holds a
-Disk-II-equivalent 5.25" shifter that extracts (~80 lines) without the IWM; Q6/Q7
-map directly. Instantiate two drives (SD slots 0 and 2), mux by `drive2_select`
-(`disk_ii.vhd:71-73`). This replaces `rtl/drive_ii.vhd`'s fixed 32 µs byte cadence
-and `X"19FF"` wrap.
+**The old six-defect table, corrected.** P0 "bit cell is 3.911 µs": a 56-clock
+cell at 14.318 MHz is calibrated against the rotation constant, and 57.27
+regressed 35 of 202 disks; keep 56. P0 "no data separator": two variants were
+built and neither fixed anything; the fault was the sequencer. P1 "TMAP alias
+forces a reload": does not reproduce (1 duplicate load in 66). P3 write-back:
+the guard shipped; TRK bit-count / TMAP / CRC32 update and `WRIT` parsing are
+still open. P2 weak bits: the LFSR fix shipped; the threshold change regressed
+12 of 15 and the reference read-head model broke DOS 3.3 in the IIgs core —
+**retry both only against Appletini's implementation** (`disk2_card.sv`
+`woz_read_mode` branch: 4-bit head window with one-cell-delayed output, and a
+30 % random 1 when the window is all zero, per the WOZ spec). Appletini's
+author has given permission. P4 angular scaling across tracks: still open, no
+evidence either way.
 
-**Main_MiSTer side:** extend the core-name gate. The IIgs uses `iigs_is_core()`
-(`support/a2/iigs_disk.cpp:40-44`); the 8-bit core uses an inline full-compare at
-`user_io.cpp:2132`, so they never collide today. Doing this also fixes `.po`/`.do`
-(see Bugs below).
+**Scope decisions for the //e port:**
 
-**Regression gauntlet to add:** Gumball (65 quarter-track entries + cross-track
-sync — the best single stress case), Lode Runner (half-track, already special-cased
-at `Apple-IIgs.sv:931-935`), Choplifter, Cyclotron (known-fail), Beyond Zork side B
-(timing 28), The Newsroom (timing 34), Carmen Sandiego side B (fuzzy bits), Essex
-side 1 (write-back).
+- **Disk II controller only.** Every //e title expects the 16-sector P5A boot
+  ROM and the P6 sequencer in slot 6; the DuoDisk uses the same card. No IWM.
+- **5.25" only.** A //e has no 3.5" path without a Liron/SmartPort card; 800K
+  `.po` images already work as a slot 7 block device. Flux-level 3.5" stays a
+  IIgs feature.
+- Two drives (SD slots 0 and 2), muxed by `drive2_select` (`disk_ii.vhd:71-73`).
+- Writes carried over from the IIgs engine (dirty-track flush).
+- Nothing from the speed holdover.
 
----
+**What to move.** `woz_floppy_controller.sv` + `flux_drive.v` (same
+`sd_lba/sd_rd/sd_buff_*` interface as `rtl/floppy_track.sv`, `IS_35_INCH=0`,
+Quartus-proven), plus the `sr525` sequencer from `iwm_flux.v` (~100 lines:
+QA hold / arm / restart, READLOAD on Q6H) driven straight from the Disk II
+soft switches. This replaces `rtl/drive_ii.vhd`'s fixed 32 µs byte cadence
+and `X"19FF"` wrap, and therefore also replaces the read path implicated in
+Phase 0 item 4 (ProDOS floppy crash) — carry the IIgs engine's `DISK_READY`
+gating so a read during a track refill stalls instead of serving a buffer
+being overwritten.
+
+**Order of work:**
+
+1. `Main_MiSTer`: pass `.woz` through for this core. Today only `iigs_is_core()`
+   (`support/a2/iigs_disk.cpp:40`) gets the passthrough; the 8-bit core's
+   inline compare at `user_io.cpp:2132` nibblizes everything. Same change fixes
+   raw `.po`/`.do` (Bugs below).
+2. Extract the engine into a module with no IWM dependencies; simulate it in
+   the **IIgs Verilator harness** (`../Apple-IIgs_MiSTer/vsim/`), which is the
+   only simulator either core has. Gate: WOZ Test Images stay at 24/26.
+3. Instantiate here in place of `drive_ii.vhd`/`floppy_track.sv`; Quartus fit
+   (two track buffers ≈ 13 M10K; core is at 72 %).
+4. Hardware gauntlet, in this order: DOS 3.3 System Master, ProDOS 2.4.3
+   (closes Phase 0 item 4), First Math Adventures (latch lifespan), Wings of
+   Fury (Q6H re-framing), Gumball (65 quarter-track entries + cross-track
+   sync), Lode Runner (half-track), Frogger (**must boot on a //e**; it does not
+   on a IIgs because the IIgs ROM's boot loop is 50 cycles between the track
+   compare and the next poll), Beyond Zork side B (timing 28), The Newsroom
+   (timing 34), Carmen Sandiego side B (fuzzy bits), Essex side 1 (write-back).
+
+**Reference emulator.** GSSquared (`/home/alans/mister/gssquared-bench`,
+branch `bench`) with `-p 3` — the enhanced //e with a 65C02, i.e. this core.
+Not `-p 2` (6502) and not the IIgs profiles. It clocks the floppy off the CPU,
+so it is blind to CPU-speed bugs; on a //e that does not matter.
+
+**Corpus.** `Apple-IIgs_MiSTer/vsim/test_woz_batch.sh` over `verify_p0.txt`
+(202 disks) at **2500 frames** — 1200 is too short for slow loaders. The
+frozen reference from the finished IIgs work is `vsim/woz_ref/` there
+(rebuilt 2026-09-02 at 2500 frames; the 2026-08-28 one is kept as
+`woz_ref_20260828/`).
 
 ## Phase 2 — memory and DMA
 
