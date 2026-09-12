@@ -180,14 +180,33 @@ module disk_ii_woz (
 
         // Mount pulse. A mount while already mounted must unmount first so the
         // WOZ controller re-parses the header (same dance as the IIgs top).
+        //
+        // DD_RESET is the machine reset (F2, the OSD reset, the reset button),
+        // not an eject: the HPS still holds the image open. The controller's own
+        // reset wipes its parsed WOZ state, so drop img_mounted while reset is
+        // held and re-pulse it on the way out, which makes the controller
+        // re-parse the header it just lost. media_present deliberately survives
+        // DD_RESET; without the re-pulse a reset leaves the drive permanently
+        // empty until the user re-mounts from the OSD.
         reg  mounted_d = 1'b0;
         reg  mount = 1'b0;
         reg  remount_pending = 1'b0;
+        reg  dd_reset_d = 1'b0;
+        reg  media_present = 1'b0;
         always @(posedge CLK_14M) begin
-            mounted_d <= mounted_in;
+            mounted_d  <= mounted_in;
+            dd_reset_d <= DD_RESET;
+
+            // Latch media presence on every HPS mount edge, reset or not: a
+            // mount that lands while reset is held still counts as a disk.
+            if (!mounted_d && mounted_in)
+                media_present <= (IMG_SIZE != 64'd0);
+
             if (DD_RESET) begin
                 mount           <= 1'b0;
                 remount_pending <= 1'b0;
+            end else if (dd_reset_d) begin
+                remount_pending <= media_present;
             end else if (!mounted_d && mounted_in) begin
                 if (mount) begin
                     mount           <= 1'b0;
